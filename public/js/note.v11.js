@@ -20,12 +20,134 @@ function saveCapital(v) {
   localStorage.setItem(CAPITAL_KEY, v);
 }
 
+/* ══════════════════════════════════════════════════════
+   관리자 인증 모듈
+   - 세션 내 1회 PIN 확인 → sessionStorage에 캐시
+   - PIN은 서버(/api/kv/admin_pin_hash)에 bcrypt 없이
+     단순 해시로 저장 (클라이언트 SHA-256)
+   ══════════════════════════════════════════════════════ */
+const ADMIN_SESSION_KEY = 'ta_admin_unlocked';
+
+function isAdminUnlocked() {
+  return sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
+}
+function setAdminUnlocked() {
+  sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
+}
+
+/* PIN을 SHA-256으로 해싱 */
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+/* 서버에서 저장된 PIN 해시 조회 */
+async function getStoredPinHash() {
+  try {
+    const res = await fetch('/api/kv/admin_pin_hash');
+    const json = await res.json();
+    return json.value || null;
+  } catch { return null; }
+}
+
+/* 서버에 PIN 해시 저장 (최초 설정 시) */
+async function savePinHash(hash, token) {
+  await fetch('/api/kv/admin_pin_hash', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: hash, token })
+  });
+}
+
+/* 관리자 모달 열기 — resolve(true/false) */
+function openAdminModal() {
+  return new Promise(resolve => {
+    const modal    = document.getElementById('adminModal');
+    const input    = document.getElementById('adminPinInput');
+    const errEl    = document.getElementById('adminPinError');
+    const confirmBtn = document.getElementById('adminPinConfirm');
+    const closeBtn = document.getElementById('adminModalClose');
+
+    modal.style.display = 'flex';
+    input.value = '';
+    errEl.textContent = '';
+    setTimeout(() => input.focus(), 100);
+
+    const cleanup = (result) => {
+      modal.style.display = 'none';
+      confirmBtn.removeEventListener('click', onConfirm);
+      closeBtn.removeEventListener('click', onClose);
+      input.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+
+    const onConfirm = async () => {
+      const pin = input.value.trim();
+      if (!pin) { errEl.textContent = 'PIN을 입력해주세요.'; return; }
+
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '확인 중...';
+
+      try {
+        const storedHash = await getStoredPinHash();
+        const enteredHash = await hashPin(pin);
+
+        if (!storedHash) {
+          // 최초 설정: 입력한 PIN이 새 PIN이 됨
+          await savePinHash(enteredHash, enteredHash); // 자기 자신을 토큰으로 사용
+          setAdminUnlocked();
+          cleanup(true);
+          showToast('✅ 관리자 PIN이 설정되었습니다', 'success', 3000);
+        } else if (enteredHash === storedHash) {
+          setAdminUnlocked();
+          cleanup(true);
+        } else {
+          errEl.textContent = 'PIN이 올바르지 않습니다.';
+          input.value = '';
+          input.focus();
+        }
+      } catch(e) {
+        errEl.textContent = '오류가 발생했습니다. 다시 시도해주세요.';
+      }
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '확인';
+    };
+
+    const onClose = () => cleanup(false);
+    const onKey   = (e) => { if (e.key === 'Enter') onConfirm(); if (e.key === 'Escape') onClose(); };
+
+    confirmBtn.addEventListener('click', onConfirm);
+    closeBtn.addEventListener('click', onClose);
+    input.addEventListener('keydown', onKey);
+  });
+}
+
+/* 관리자 권한 요구 — 이미 인증됐으면 바로 통과 */
+async function requireAdmin() {
+  if (isAdminUnlocked()) return true;
+  return await openAdminModal();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const all    = await DB.getAll('trades');
   const mt4    = all.filter(t => (t.platform || '').toUpperCase() === 'MT4');
   const select = document.getElementById('weekSelect');
   const badge  = document.getElementById('weekBadge');
   const content= document.getElementById('noteContent');
+
+  /* ── 잠금 아이콘 초기 상태 ── */
+  function updateLockIcon() {
+    const icon = document.getElementById('capitalLockIcon');
+    if (!icon) return;
+    if (isAdminUnlocked()) {
+      icon.className = 'fas fa-lock-open';
+      icon.style.color = '#2e7d32';
+    } else {
+      icon.className = 'fas fa-lock';
+      icon.style.color = '';
+    }
+  }
+  updateLockIcon();
 
   /* ── 자본금 편집 UI ── */
   const capitalDisplay   = document.getElementById('capitalDisplay');
@@ -53,7 +175,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   capitalDisplay.textContent = '$' + capital.toLocaleString();
   capitalInput.value = capital;
 
-  capitalEditBtn.addEventListener('click', () => {
+  // 자본금 수정 버튼 — 관리자 인증 필요
+  capitalEditBtn.addEventListener('click', async () => {
+    const ok = await requireAdmin();
+    if (!ok) return;
+    updateLockIcon();
     capitalDisplay.style.display   = 'none';
     capitalInput.style.display     = 'block';
     capitalSaveBtn.style.display   = 'block';
@@ -398,8 +524,13 @@ function initComment(weekKey) {
   const saved = localStorage.getItem(commentKey(weekKey)) || '';
   renderComment(display, saved);
 
-  /* 표시 영역 클릭 → 편집 모드 진입 */
-  display.addEventListener('click', () => {
+  /* 표시 영역 클릭 → 관리자 인증 후 편집 모드 진입 */
+  display.addEventListener('click', async () => {
+    const ok = await requireAdmin();
+    if (!ok) return;
+    // 잠금 아이콘 갱신
+    const lockIcon = document.getElementById('capitalLockIcon');
+    if (lockIcon && isAdminUnlocked()) { lockIcon.className = 'fas fa-lock-open'; lockIcon.style.color = '#2e7d32'; }
     textarea.value = localStorage.getItem(commentKey(weekKey)) || '';
     display.style.display  = 'none';
     textarea.style.display = 'block';

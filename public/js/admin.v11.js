@@ -175,24 +175,25 @@ document.getElementById('confirmUpload').addEventListener('click', async () => {
 
   let totalSaved = 0, totalSkipped = 0;
   const totalCount = parsedBatches.reduce((a, b) => a + b.result.trades.length, 0);
-  let processed = 0;
 
   for (let bi = 0; bi < parsedBatches.length; bi++) {
     const batch       = parsedBatches[bi];
-    const trades      = batch.result.trades;
+    const allTrades   = batch.result.trades;
     const batchId     = `batch_${Date.now()}_${bi}`;
-    const batchProfit = trades.reduce((a, t) => a + (parseFloat(t.profit)||0), 0);
-    const periodDates = trades.map(t => new Date(t.close_time)).filter(d => !isNaN(d));
+    const batchProfit = allTrades.reduce((a, t) => a + (parseFloat(t.profit)||0), 0);
+    const periodDates = allTrades.map(t => new Date(t.close_time)).filter(d => !isNaN(d));
     const periodStart = periodDates.length ? new Date(Math.min(...periodDates)).toISOString() : null;
     const periodEnd   = periodDates.length ? new Date(Math.max(...periodDates)).toISOString() : null;
-    let batchSaved = 0;
 
-    for (const trade of trades) {
+    // ── 중복 필터링 ──────────────────────────────────────────────
+    const tradesToInsert = [];
+    for (const trade of allTrades) {
       const key = `${trade.ticket}_${trade.symbol}_${batch.result.platform}`;
       if (duplicateMode === 'skip' && existingKeys.has(key)) {
         totalSkipped++;
       } else {
-        const r = await DB.insert('trades', {
+        existingKeys.add(key);
+        tradesToInsert.push({
           ticket:       String(trade.ticket      || ''),
           symbol:       String(trade.symbol      || ''),
           type:         String(trade.type        || ''),
@@ -211,26 +212,46 @@ document.getElementById('confirmUpload').addEventListener('click', async () => {
           account_id:   String(batch.result.account  || ''),
           upload_batch: batchId
         });
-        if (r && r.id) { existingKeys.add(key); batchSaved++; totalSaved++; }
       }
-      processed++;
-      const pct = Math.round((processed / totalCount) * 100);
-      progressFill.style.width = pct + '%';
-      progressText.textContent = `저장 중... ${pct}% (${totalSaved}건 저장)`;
     }
 
-    await DB.insert('upload_history', {
-      filename:        batch.filename,
-      platform:        batch.result.platform        || '',
-      account:         batch.result.account         || '',
-      period_start:    periodStart,
-      period_end:      periodEnd,
-      total_trades:    batchSaved,
-      total_profit:    batchProfit,
-      upload_note:     note,
-      batch_id:        batchId,
-      initial_balance: batch.result.initialBalance  || null
-    });
+    if (tradesToInsert.length === 0) continue;
+
+    // ── 배치 API 호출 (100건씩 청크 → 한 번의 HTTP로 D1 batch INSERT) ──
+    const CHUNK = 100;
+    for (let ci = 0; ci < tradesToInsert.length; ci += CHUNK) {
+      const chunk = tradesToInsert.slice(ci, ci + CHUNK);
+      const isLastChunk = (ci + CHUNK) >= tradesToInsert.length;
+
+      progressText.textContent = `저장 중... ${Math.round(((totalSaved + ci) / totalCount) * 100)}% (${totalSaved + ci}건)`;
+      progressFill.style.width = Math.round(((totalSaved + ci) / totalCount) * 100) + '%';
+
+      const payload = {
+        trades: chunk,
+        // 마지막 청크에만 upload_history 포함
+        upload_history: isLastChunk ? {
+          filename:        batch.filename,
+          platform:        batch.result.platform        || '',
+          account:         batch.result.account         || '',
+          period_start:    periodStart,
+          period_end:      periodEnd,
+          total_trades:    tradesToInsert.length,
+          total_profit:    batchProfit,
+          upload_note:     note,
+          batch_id:        batchId,
+          initial_balance: batch.result.initialBalance  || null
+        } : null
+      };
+
+      const res = await fetch('/api/trades/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || '배치 저장 실패');
+      totalSaved += chunk.length;
+    }
   }
 
   progressFill.style.width = '100%';

@@ -590,10 +590,32 @@
       <span class="capital-label"><i class="fas fa-wallet" style="margin-right:6px;"></i>자본금</span>
       <span class="capital-display" id="capitalDisplay">$1,000</span>
       <input class="capital-input" id="capitalInput" type="number" min="1" step="1" value="1000" />
-      <button class="capital-btn edit"  id="capitalEditBtn">수정</button>
+      <button class="capital-btn edit"  id="capitalEditBtn"><i class="fas fa-lock" id="capitalLockIcon" style="margin-right:4px;font-size:10px;"></i>수정</button>
       <button class="capital-btn save"  id="capitalSaveBtn">저장</button>
       <button class="capital-btn cancel" id="capitalCancelBtn">취소</button>
       <span class="capital-hint">수정 후 저장하면 수익률이 재계산됩니다</span>
+    </div>
+
+    <!-- 관리자 인증 모달 -->
+    <div id="adminModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:14px;padding:36px 32px;width:340px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;">
+        <button id="adminModalClose" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;cursor:pointer;color:#999;">✕</button>
+        <div style="text-align:center;margin-bottom:24px;">
+          <div style="width:48px;height:48px;background:#f5c400;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+            <i class="fas fa-lock" style="font-size:20px;color:#000;"></i>
+          </div>
+          <h3 style="margin:0 0 6px;font-size:17px;font-weight:700;color:#1a232d;">관리자 인증</h3>
+          <p style="margin:0;font-size:13px;color:#888;">PIN을 입력해야 편집할 수 있습니다</p>
+        </div>
+        <input id="adminPinInput" type="password" placeholder="관리자 PIN 입력"
+          style="width:100%;box-sizing:border-box;padding:12px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:15px;outline:none;margin-bottom:8px;"
+          maxlength="20" />
+        <div id="adminPinError" style="color:#e53935;font-size:12px;min-height:18px;margin-bottom:10px;"></div>
+        <button id="adminPinConfirm"
+          style="width:100%;padding:12px;background:#1a232d;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+          확인
+        </button>
+      </div>
     </div>
 
     <!-- 주차 드롭다운 -->
