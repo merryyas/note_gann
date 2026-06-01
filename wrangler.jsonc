@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "tradinglog-production",
-      "database_id": "REPLACE_WITH_ACTUAL_DATABASE_ID"
+      "database_id": "3cc23219-c413-4422-951a-2797d31681e4"
     }
   ]
 }
