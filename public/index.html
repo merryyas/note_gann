@@ -446,16 +446,27 @@
       return v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
     }
 
+    // 심볼 약어 매핑
+    const SYM_CODE = {
+      '^spx': 'SPX', '^ndx': 'NDX', '^dji': 'DJI',
+      'gc.f': 'GOLD', 'cl.f': 'OIL', 'usdkrw': 'USD/KRW'
+    };
+
+    function fmtSym(sym) {
+      return SYM_CODE[sym] || sym.toUpperCase();
+    }
+
     function buildItems(data) {
       return data.map(d => {
         const pos  = d.changePct >= 0;
         const sign = pos ? '+' : '';
         const cls  = pos ? 'tick-up' : 'tick-dn';
+        const arrow = pos ? '▲' : '▼';
         return `<span class="ticker-item">
-          <span class="ticker-item-label">${d.label}</span>
+          <span class="ticker-item-sym">${fmtSym(d.sym)}</span>
           <span class="ticker-item-price">${fmtPrice(d.price, d.type)}</span>
-          <span class="ticker-item-chg ${cls}">${sign}${d.changePct.toFixed(2)}%</span>
-        </span><span class="ticker-sep">▪</span>`;
+          <span class="ticker-item-chg ${cls}">${arrow}${sign}${d.changePct.toFixed(2)}%</span>
+        </span><span class="ticker-sep">|</span>`;
       }).join('');
     }
 
@@ -465,8 +476,16 @@
         const json = await res.json();
         if (!json.ok || !json.data.length) return;
         const html = buildItems(json.data);
-        // 무한 스크롤을 위해 동일 콘텐츠 2번 반복
+
+        // 애니메이션을 완전히 리셋한 뒤 재시작해야 끊김 없음
+        track.classList.remove('running');
+        track.style.animation = 'none';
+        // 2배 복사: 정확히 50% 이동 시 처음으로 돌아오는 원리
         track.innerHTML = html + html;
+
+        // reflow 강제 후 애니메이션 재시작 (브라우저가 변경사항 반영)
+        void track.offsetWidth;
+        track.style.animation = '';
         track.classList.add('running');
       } catch(e) {
         track.innerHTML = '<span class="ticker-loading">시세 로드 실패</span>';

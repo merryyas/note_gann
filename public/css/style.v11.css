@@ -423,13 +423,17 @@ input, select, textarea { font-family: inherit; }
   white-space: nowrap;
   gap: 0;
   will-change: transform;
+  /* 애니메이션 없을 때 초기 위치 고정 */
+  transform: translateX(0);
 }
 .ticker-track.running {
-  animation: tickerScroll 35s linear infinite;
+  animation: tickerScroll 40s linear infinite;
 }
 @keyframes tickerScroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  /* 콘텐츠를 2배 복사했으므로 정확히 절반(50%)만큼 이동하면
+     끝 지점이 복사본 시작과 일치 → 끊김 없이 무한 반복 */
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
 }
 
 /* 개별 아이템 */
@@ -442,8 +446,15 @@ input, select, textarea { font-family: inherit; }
   font-weight: 600;
   letter-spacing: 0.3px;
 }
+.ticker-item-sym {
+  color: rgba(255,255,255,0.55);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-family: var(--font-d);
+}
 .ticker-item-label {
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.38);
   font-size: 10px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
