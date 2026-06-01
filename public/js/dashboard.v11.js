@@ -105,49 +105,16 @@ async function renderKPIs(trades) {
   if (heroTotalTrades) heroTotalTrades.textContent  = trades.length.toLocaleString();
 
   const now = new Date();
-
-  // "이번 달" 기준: 데이터가 있는 가장 최신 월 기준으로 표시
-  // (현재 달에 데이터가 없으면 가장 최근 거래가 있는 달로 fallback)
-  let displayYear  = now.getFullYear();
-  let displayMonth = now.getMonth();
-
-  const thisMonthTrades = trades.filter(t => {
+  const thisMonth = trades.filter(t => {
     const dt = t.close_time ? new Date(t.close_time) : null;
-    return dt && dt.getFullYear() === displayYear && dt.getMonth() === displayMonth;
+    return dt && dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
   });
-
-  // 이번달 데이터가 없으면 → 최신 거래 기준 달로 fallback
-  if (thisMonthTrades.length === 0 && trades.length > 0) {
-    // close_time 기준 가장 최신 거래 찾기
-    const latestTrade = trades.reduce((best, t) => {
-      const dt = t.close_time ? new Date(t.close_time) : null;
-      if (!dt) return best;
-      return (!best || dt > new Date(best.close_time)) ? t : best;
-    }, null);
-    if (latestTrade && latestTrade.close_time) {
-      const latestDt = new Date(latestTrade.close_time);
-      displayYear  = latestDt.getFullYear();
-      displayMonth = latestDt.getMonth();
-    }
-  }
-
-  const recentMonthTrades = trades.filter(t => {
-    const dt = t.close_time ? new Date(t.close_time) : null;
-    return dt && dt.getFullYear() === displayYear && dt.getMonth() === displayMonth;
-  });
-  const monthlyProfit = recentMonthTrades.reduce((a, t) => a + (parseFloat(t.profit) || 0), 0);
-
-  // KPI 레이블 동적 업데이트 (이번달이 아닐 경우 월 표시)
-  const monthLabel = (displayYear === now.getFullYear() && displayMonth === now.getMonth())
-    ? '이번 달 수익'
-    : `${displayYear}.${String(displayMonth + 1).padStart(2, '0')} 수익`;
-  const monthLabelEl = document.querySelector('#kpiMonthlyProfit')?.closest('.kpi-card')?.querySelector('.kpi-label');
-  if (monthLabelEl) monthLabelEl.textContent = monthLabel;
+  const monthlyProfit = thisMonth.reduce((a, t) => a + (parseFloat(t.profit) || 0), 0);
 
   setKpiValue('kpiTotalProfit',   fmt.currency1(stats.total),   stats.total >= 0 ? 'gain' : 'loss');
   setKpiText ('kpiTotalSub',      '');
   setKpiValue('kpiMonthlyProfit', fmt.currency1(monthlyProfit), monthlyProfit >= 0 ? 'gain' : 'loss');
-  setKpiText ('kpiMonthlySub',    `${recentMonthTrades.length}건`);
+  setKpiText ('kpiMonthlySub',    '');
   setKpiValue('kpiWinRate',       fmt.percent(stats.winRate));
   setKpiText ('kpiWinSub',        `${stats.wins}승 ${stats.losses}패`);
   setKpiValue('kpiTotalTrades',   trades.length.toLocaleString());
