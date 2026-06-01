@@ -107,8 +107,11 @@ async function renderKPIs(trades) {
       ? (returnRate >= 0 ? '+' : '') + returnRate.toFixed(1) + '%'
       : '—';
   }
+  // 거래일 카운트: close_time 기준 YYYY-MM-DD 관리, MT4/MT5 중복 제거
+  const tradingDays = countUniqueTradingDays(trades);
+
   if (heroWR)          heroWR.textContent          = fmt.percent(stats.winRate);
-  if (heroTotalTrades) heroTotalTrades.textContent  = trades.length.toLocaleString();
+  if (heroTotalTrades) heroTotalTrades.textContent  = tradingDays.toLocaleString();
 
   const now = new Date();
   const thisMonth = trades.filter(t => {
@@ -123,7 +126,7 @@ async function renderKPIs(trades) {
   setKpiText ('kpiMonthlySub',    '');
   setKpiValue('kpiWinRate',       fmt.percent(stats.winRate));
   setKpiText ('kpiWinSub',        `${stats.wins}승 ${stats.losses}패`);
-  setKpiValue('kpiTotalTrades',   trades.length.toLocaleString());
+  setKpiValue('kpiTotalTrades',   tradingDays.toLocaleString());
   const platforms = [...new Set(trades.map(t => t.platform).filter(Boolean))];
   setKpiText ('kpiTradesSub',     platforms.join(' · ') || '—');
   setKpiValue('kpiMDD', fmt.percent(stats.mdd), stats.mdd > 20 ? 'loss' : '');
@@ -238,6 +241,24 @@ function renderRecentTrades(trades) {
       <td><span class="platform-badge ${(t.platform || '').toLowerCase()}">${t.platform || '—'}</span></td>
     </tr>`;
   }).join('');
+}
+
+// ===== 중복 제거 거래일 카운터 =====
+// close_time 기준 날짜(KST 오프셋 없이 UTC 날짜 문자열)를 Set으로 집계
+// MT4 + MT5 데이터가 같은 날짜에 있어도 1일로만 카운트
+function countUniqueTradingDays(trades) {
+  const dateSet = new Set();
+  trades.forEach(t => {
+    if (!t.close_time) return;
+    const dt = new Date(t.close_time);
+    if (isNaN(dt)) return;
+    // YYYY-MM-DD 형식 키 (UTC 기준 — 서버 저장 시각과 동일 기준)
+    const key = dt.getUTCFullYear() + '-'
+      + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-'
+      + String(dt.getUTCDate()).padStart(2, '0');
+    dateSet.add(key);
+  });
+  return dateSet.size;
 }
 
 function renderEmptyState() {
