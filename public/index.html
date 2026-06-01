@@ -224,15 +224,13 @@
     </div>
   </div>
 
-  <!-- 실시간 지수 티커 (TradingView) -->
+  <!-- 실시간 지수 티커 -->
   <div class="hero-ticker">
     <div class="ticker-label-fixed">LIVE</div>
-    <div class="ticker-tv" id="tvTickerWrap">
-      <!-- TradingView Ticker Tape Widget BEGIN -->
-      <div class="tradingview-widget-container" style="width:100%;height:37px;">
-        <div class="tradingview-widget-container__widget" style="width:100%;height:37px;"></div>
+    <div class="ticker-track-wrap">
+      <div class="ticker-track" id="tickerTrack">
+        <span class="ticker-loading"><i class="fas fa-circle-notch fa-spin"></i></span>
       </div>
-      <!-- TradingView Ticker Tape Widget END -->
     </div>
   </div>
 </section>
@@ -437,30 +435,46 @@
 <script src="js/charts.v11.js"></script>
 <script src="js/dashboard.v11.js"></script>
 <script>
-  /* ── TradingView 티커 테이프 위젯 동적 로드 ── */
+  /* ── 시세 티커 ── */
   (function() {
-    var container = document.querySelector('.tradingview-widget-container');
-    if (!container) return;
-    var script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.src  = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js';
-    script.async = true;
-    script.innerHTML = JSON.stringify({
-      symbols: [
-        { proName: 'FOREXCOM:SPXUSD',  title: 'S&P 500' },
-        { proName: 'FOREXCOM:NSXUSD',  title: '나스닥 100' },
-        { proName: 'FOREXCOM:DJI',     title: '다우존스' },
-        { proName: 'TVC:GOLD',         title: '금' },
-        { proName: 'TVC:USOIL',        title: 'WTI 원유' },
-        { proName: 'FX_IDC:USDKRW',   title: '원/달러' }
-      ],
-      showSymbolLogo: true,
-      isTransparent: true,
-      displayMode: 'regular',
-      colorTheme: 'dark',
-      locale: 'kr'
-    });
-    container.appendChild(script);
+    const track = document.getElementById('tickerTrack');
+    if (!track) return;
+
+    function fmtPrice(v, type) {
+      if (type === 'fx')        return v.toLocaleString('ko-KR', {maximumFractionDigits:2});
+      if (type === 'commodity') return v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      return v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+
+    function buildItems(data) {
+      return data.map(d => {
+        const pos  = d.changePct >= 0;
+        const sign = pos ? '+' : '';
+        const cls  = pos ? 'tick-up' : 'tick-dn';
+        return `<span class="ticker-item">
+          <span class="ticker-item-label">${d.label}</span>
+          <span class="ticker-item-price">${fmtPrice(d.price, d.type)}</span>
+          <span class="ticker-item-chg ${cls}">${sign}${d.changePct.toFixed(2)}%</span>
+        </span><span class="ticker-sep">▪</span>`;
+      }).join('');
+    }
+
+    async function loadTicker() {
+      try {
+        const res  = await fetch('/api/ticker');
+        const json = await res.json();
+        if (!json.ok || !json.data.length) return;
+        const html = buildItems(json.data);
+        // 무한 스크롤을 위해 동일 콘텐츠 2번 반복
+        track.innerHTML = html + html;
+        track.classList.add('running');
+      } catch(e) {
+        track.innerHTML = '<span class="ticker-loading">시세 로드 실패</span>';
+      }
+    }
+
+    loadTicker();
+    setInterval(loadTicker, 60000); // 1분마다 갱신
   })();
 
   /* Nav 스크롤 */

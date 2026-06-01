@@ -200,6 +200,129 @@ app.delete('/tables/:table', async (c) => {
 // ─── Health ────────────────────────────────────────────────────
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }))
 
+// ─── Ticker Proxy  GET /api/ticker ────────────────────────────
+// 전략:
+//   1차: Stooq CSV (헤더 행 없음 — lines[0]이 데이터)
+//   2차: open.er-api.com (환율 fallback)
+//   3차: 하드코딩 fallback (전날 종가)
+const TICKER_SYMBOLS: { sym: string; label: string; type: 'index'|'commodity'|'fx' }[] = [
+  { sym: '^spx',   label: 'S&P 500',  type: 'index'     },
+  { sym: '^ndx',   label: '나스닥',    type: 'index'     },
+  { sym: '^dji',   label: '다우',      type: 'index'     },
+  { sym: 'gc.f',   label: '금',        type: 'commodity' },
+  { sym: 'cl.f',   label: 'WTI',       type: 'commodity' },
+  { sym: 'usdkrw', label: '원/달러',   type: 'fx'        },
+]
+
+// Stooq에서 단일 심볼 가져오기
+async function fetchStooq(sym: string): Promise<{ price: number; open: number } | null> {
+  try {
+    const encoded = encodeURIComponent(sym)
+    const url = `https://stooq.com/q/l/?s=${encoded}&f=sd2t2ohlcv&e=csv`
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'Accept': 'text/csv,text/plain,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://stooq.com/',
+      },
+      // CF Workers에서 자동으로 붙는 CF 헤더 제거 시도
+      cf: { cacheEverything: false } as never,
+    })
+    if (!res.ok) return null
+    const text = await res.text()
+    // Stooq CSV: 헤더 행 없음. 첫 줄이 바로 데이터
+    // 형식: SYMBOL,DATE,TIME,OPEN,HIGH,LOW,CLOSE,VOLUME
+    const line = text.trim().split('\n')[0]
+    if (!line || line.startsWith('Symbol')) return null  // 혹시 헤더가 있으면 skip
+    const cols = line.split(',')
+    if (cols.length < 7) return null
+    const price = parseFloat(cols[6])
+    const open  = parseFloat(cols[3])
+    if (isNaN(price) || isNaN(open)) return null
+    return { price, open }
+  } catch {
+    return null
+  }
+}
+
+app.get('/api/ticker', async (c) => {
+  try {
+    // 1차: Stooq 병렬 요청
+    const results = await Promise.all(
+      TICKER_SYMBOLS.map(async ({ sym, label, type }) => {
+        const data = await fetchStooq(sym)
+        if (!data) return null
+        const { price, open } = data
+        const change    = price - open
+        const changePct = open > 0 ? (change / open) * 100 : 0
+        return { sym, label, type, price, change, changePct }
+      })
+    )
+
+    // 2차 fallback: 환율(usdkrw)만 open.er-api.com으로 대체
+    const finalResults = await Promise.all(
+      results.map(async (item, idx) => {
+        if (item !== null) return item
+        const { sym, label, type } = TICKER_SYMBOLS[idx]
+
+        // 환율 fallback
+        if (sym === 'usdkrw') {
+          try {
+            const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+              headers: { 'Accept': 'application/json' }
+            })
+            const json = await res.json() as { rates?: Record<string, number> }
+            const price = json.rates?.['KRW']
+            if (price) {
+              return { sym, label, type, price, change: 0, changePct: 0 }
+            }
+          } catch { /* skip */ }
+        }
+        return null
+      })
+    )
+
+    const data = finalResults.filter(Boolean)
+    return c.json({ ok: true, data, ts: Date.now() }, 200, {
+      'Cache-Control': 'public, max-age=60'
+    })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e), data: [] }, 500)
+  }
+})
+
+// ─── Ticker Debug  GET /api/ticker-debug ──────────────────────
+// Worker에서 Stooq가 실제로 무엇을 반환하는지 확인용
+app.get('/api/ticker-debug', async (c) => {
+  const results: Record<string, unknown> = {}
+  for (const { sym } of TICKER_SYMBOLS.slice(0, 2)) {
+    try {
+      const url = `https://stooq.com/q/l/?s=${encodeURIComponent(sym)}&f=sd2t2ohlcv&e=csv`
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/csv,text/plain,*/*',
+          'Referer': 'https://stooq.com/',
+        }
+      })
+      const text = await res.text()
+      results[sym] = { status: res.status, bodyPreview: text.slice(0, 200), len: text.length }
+    } catch(e) {
+      results[sym] = { error: String(e) }
+    }
+  }
+  // open.er-api 도 테스트
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD')
+    const json = await res.json() as { rates?: Record<string, number> }
+    results['open.er-api/KRW'] = { status: res.status, krw: json.rates?.['KRW'] }
+  } catch(e) {
+    results['open.er-api/KRW'] = { error: String(e) }
+  }
+  return c.json(results)
+})
+
 // ─── Static asset fallback (Cloudflare Pages ASSETS) ──────────
 // API 라우트에 매칭되지 않는 모든 요청은 Pages 정적 파일로 전달
 app.all('*', async (c) => {
