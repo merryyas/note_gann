@@ -4,20 +4,20 @@
    총 거래 횟수 / 승률 / 일별 최종 손익 / 최대 익절(단일) / 최대 손절(단일) / 최대진입 랏수
 */
 
-/* ── 자본금 localStorage 키 ── */
-const CAPITAL_KEY = 'ta_note_capital';
-
 /* ── 엑셀 연동용 모듈 스코프 상태 ── */
 let _currentRows      = [];
 let _currentWeekLabel = '';
 let _currentCapital   = 1000;
 let _currentWeekKey   = '';
 
-function getCapital() {
-  return parseFloat(localStorage.getItem(CAPITAL_KEY)) || 1000;
+async function getCapital() {
+  try {
+    const val = await KV.get('capital');
+    return parseFloat(val) || 1000;
+  } catch { return 1000; }
 }
-function saveCapital(v) {
-  localStorage.setItem(CAPITAL_KEY, v);
+async function saveCapital(v) {
+  try { await KV.set('capital', String(v)); } catch {}
 }
 
 /* ══════════════════════════════════════════════════════
@@ -157,8 +157,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const capitalCancelBtn = document.getElementById('capitalCancelBtn');
 
   // 저장된 자본금 불러오기
-  // — localStorage에 수동 저장값이 없으면 upload_history의 MT4 initial_balance 사용
-  let capital = getCapital();
+  // — KV에 수동 저장값이 없으면 upload_history의 MT4 initial_balance 사용
+  let capital = await getCapital();
   if (capital === 1000) { // 기본값 그대로면 history에서 시도
     const history = await DB.getAll('upload_history');
     const mt4History = history.filter(h => (h.platform || '').toUpperCase() === 'MT4' && h.initial_balance);
@@ -197,11 +197,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     capitalEditBtn.style.display   = 'block';
   };
 
-  capitalSaveBtn.addEventListener('click', () => {
+  capitalSaveBtn.addEventListener('click', async () => {
     const v = parseFloat(capitalInput.value);
     if (!v || v <= 0) { alert('올바른 자본금을 입력해주세요.'); return; }
     capital = v;
-    saveCapital(capital);
+    await saveCapital(capital);
     capitalDisplay.textContent = '$' + capital.toLocaleString();
     exitEdit();
     // 현재 선택된 주차 재렌더링
@@ -505,9 +505,9 @@ async function renderWeek(key, weekMap, badge, content, capital) {
   initComment(key);
 }
 
-/* ── 코멘트 localStorage 키 ── */
+/* ── 코멘트 D1/KV 키 ── */
 function commentKey(weekKey) {
-  return `ta_note_comment_${weekKey}`;
+  return `note:comment:${weekKey}`;
 }
 
 /* ── 코멘트 초기화 & 이벤트 바인딩 ── */
@@ -521,8 +521,7 @@ function initComment(weekKey) {
   if (!display || !textarea) return;
 
   /* 저장된 코멘트 불러오기 */
-  const saved = localStorage.getItem(commentKey(weekKey)) || '';
-  renderComment(display, saved);
+  KV.get(commentKey(weekKey)).then(saved => renderComment(display, saved || ''));
 
   /* 표시 영역 클릭 → 관리자 인증 후 편집 모드 진입 */
   display.addEventListener('click', async () => {
@@ -531,7 +530,7 @@ function initComment(weekKey) {
     // 잠금 아이콘 갱신
     const lockIcon = document.getElementById('capitalLockIcon');
     if (lockIcon && isAdminUnlocked()) { lockIcon.className = 'fas fa-lock-open'; lockIcon.style.color = '#2e7d32'; }
-    textarea.value = localStorage.getItem(commentKey(weekKey)) || '';
+    textarea.value = (await KV.get(commentKey(weekKey))) || '';
     display.style.display  = 'none';
     textarea.style.display = 'block';
     actions.style.display  = 'flex';
@@ -541,9 +540,9 @@ function initComment(weekKey) {
   });
 
   /* 저장 */
-  saveBtn.addEventListener('click', () => {
+  saveBtn.addEventListener('click', async () => {
     const val = textarea.value.trim();
-    localStorage.setItem(commentKey(weekKey), val);
+    await KV.set(commentKey(weekKey), val);
     renderComment(display, val);
     textarea.style.display = 'none';
     actions.style.display  = 'none';

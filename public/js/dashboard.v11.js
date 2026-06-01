@@ -82,8 +82,12 @@ async function renderKPIs(trades) {
   const heroTotalTrades = document.getElementById('heroTotalTrades');
   const heroReturnRate  = document.getElementById('heroReturnRate');
 
-  const CAPITAL_KEY = 'ta_note_capital';
-  let initialCapital = parseFloat(localStorage.getItem(CAPITAL_KEY)) || 0;
+  // KV 서버에서 자본금 로드 (없으면 upload_history fallback)
+  let initialCapital = 0;
+  try {
+    const kvVal = await KV.get('capital');
+    initialCapital = parseFloat(kvVal) || 0;
+  } catch {}
   if (!initialCapital) {
     const history = await DB.getAll('upload_history');
     const mt4hist = history
@@ -91,7 +95,9 @@ async function renderKPIs(trades) {
       .sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
     if (mt4hist.length > 0) {
       initialCapital = parseFloat(mt4hist[0].initial_balance) || 0;
-      if (initialCapital > 0) localStorage.setItem(CAPITAL_KEY, initialCapital);
+      if (initialCapital > 0) {
+        try { await KV.set('capital', String(initialCapital)); } catch {}
+      }
     }
   }
   const returnRate = initialCapital > 0 ? (stats.total / initialCapital) * 100 : 0;

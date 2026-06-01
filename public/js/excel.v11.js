@@ -170,14 +170,17 @@ const excelExport = {
   /* ════════════════════════════════════════
      트레이딩 노트 헌정 — 선택 주차 일별 기록
      ════════════════════════════════════════ */
-  note(dayRows, weekLabel, capital, weekKey = '') {
+  async note(dayRows, weekLabel, capital, weekKey = '') {
     const btn = document.getElementById('noteExcelBtn');
     this._btnLoading(btn, true);
 
     try {
       const wb = XLSX.utils.book_new();
-      // 코멘트 불러오기
-      const comment = weekKey ? (localStorage.getItem(`ta_note_comment_${weekKey}`) || '') : '';
+      // 코멘트 불러오기 (D1 KV)
+      let comment = '';
+      if (weekKey) {
+        try { comment = (await KV.get(`note:comment:${weekKey}`)) || ''; } catch {}
+      }
 
       /* 시트1: 일별 기록 */
       const headers = [
