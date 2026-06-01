@@ -467,15 +467,20 @@ input, select, textarea { font-family: inherit; }
 }
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  box-sizing: border-box;
 }
 .kpi-card {
   display: flex;
   flex-direction: column;
-  padding: 30px 28px;
+  padding: 30px 24px;
   border-right: 1px solid var(--border);
   transition: background 0.2s;
   gap: 0;
+  min-width: 0;          /* 텍스트 넘침 방지 — 균등 너비 보장 */
+  overflow: hidden;
+  box-sizing: border-box;
 }
 .kpi-card:last-child { border-right: none; }
 .kpi-card:hover { background: rgba(255,255,255,0.02); }
@@ -485,14 +490,17 @@ input, select, textarea { font-family: inherit; }
 
 .kpi-body { display: flex; flex-direction: column; }
 .kpi-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   color: rgba(255,255,255,0.28);
   margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.kpi-label-lg { font-size: 12px; letter-spacing: 1px; }
+.kpi-label-lg { font-size: 11px; letter-spacing: 0.8px; }
 .kpi-value {
   font-family: var(--font-d);
   font-size: 30px;

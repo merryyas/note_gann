@@ -228,34 +228,18 @@
   <div class="hero-ticker">
     <div class="ticker-label-fixed">LIVE</div>
     <div class="ticker-tv" id="tvTickerWrap">
-      <!-- TradingView Ticker Tape Widget -->
-      <div class="tradingview-widget-container">
-        <div class="tradingview-widget-container__widget"></div>
-        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
-        {
-          "symbols": [
-            { "proName": "NASDAQ:QQQ",      "title": "나스닥" },
-            { "proName": "AMEX:SPY",        "title": "S&P 500" },
-            { "proName": "AMEX:DIA",        "title": "다우존스" },
-            { "proName": "TVC:GOLD",        "title": "금" },
-            { "proName": "TVC:USOIL",       "title": "WTI 원유" },
-            { "proName": "FX_IDC:USDKRW",   "title": "원/달러" }
-          ],
-          "showSymbolLogo": true,
-          "isTransparent": true,
-          "displayMode": "regular",
-          "colorTheme": "dark",
-          "locale": "kr"
-        }
-        </script>
+      <!-- TradingView Ticker Tape Widget BEGIN -->
+      <div class="tradingview-widget-container" style="width:100%;height:37px;">
+        <div class="tradingview-widget-container__widget" style="width:100%;height:37px;"></div>
       </div>
+      <!-- TradingView Ticker Tape Widget END -->
     </div>
   </div>
 </section>
 
 <!-- ===== KPI STRIP ===== -->
 <section class="kpi-section">
-  <div class="kpi-grid" style="max-width:1280px;margin:0 auto;">
+  <div class="kpi-grid" style="max-width:1280px;margin:0 auto;width:100%;">
     <div class="kpi-card">
       <div class="kpi-body">
         <p class="kpi-label kpi-label-lg">누적 순손익</p>
@@ -453,6 +437,32 @@
 <script src="js/charts.v11.js"></script>
 <script src="js/dashboard.v11.js"></script>
 <script>
+  /* ── TradingView 티커 테이프 위젯 동적 로드 ── */
+  (function() {
+    var container = document.querySelector('.tradingview-widget-container');
+    if (!container) return;
+    var script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src  = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      symbols: [
+        { proName: 'FOREXCOM:SPXUSD',  title: 'S&P 500' },
+        { proName: 'FOREXCOM:NSXUSD',  title: '나스닥 100' },
+        { proName: 'FOREXCOM:DJI',     title: '다우존스' },
+        { proName: 'TVC:GOLD',         title: '금' },
+        { proName: 'TVC:USOIL',        title: 'WTI 원유' },
+        { proName: 'FX_IDC:USDKRW',   title: '원/달러' }
+      ],
+      showSymbolLogo: true,
+      isTransparent: true,
+      displayMode: 'regular',
+      colorTheme: 'dark',
+      locale: 'kr'
+    });
+    container.appendChild(script);
+  })();
+
   /* Nav 스크롤 */
   const siteNav = document.getElementById('siteNav');
   window.addEventListener('scroll', () => {
