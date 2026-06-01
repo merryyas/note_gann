@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>트레이딩 노트 헌정 — 334 TRADINGLOG</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --white:       #ffffff;
+      --bg:          #f5f6f8;
+      --bg-card:     #ffffff;
+      --border:      #e2e6ea;
+      --border-dark: #c8cdd4;
+      --text-primary:#1a2330;
+      --text-sub:    #4a5568;
+      --text-muted:  #8a95a3;
+      --yellow:      #f5c400;
+      --yellow-bg:   #fffbe6;
+      --green:       #22a06b;
+      --green-bg:    #e8f7f0;
+      --red:         #e53e3e;
+      --red-bg:      #fff0f0;
+      --blue:        #3b82f6;
+      --orange:      #d96c00;
+      --accent:      #1a2330;
+      --bg-sub:      #f5f6f8;
+      --font-s:      'Noto Sans KR';
+      --font-main:   'Noto Sans KR', sans-serif;
+      --font-d:      'Bebas Neue', sans-serif;
+      --radius:      10px;
+      --shadow:      0 2px 12px rgba(0,0,0,0.07);
+    }
+
+    body {
+      font-family: var(--font-main);
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* ── NAV ── */
+    .site-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 1000;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      padding: 0 40px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    }
+    .nav-menu-btn {
+      width: 42px; height: 32px;
+      border: 1px solid var(--border-dark);
+      border-radius: 5px;
+      background: transparent;
+      cursor: pointer;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 5px; flex-shrink: 0;
+    }
+    .nav-menu-btn span {
+      display: block;
+      width: 16px; height: 1.5px;
+      background: var(--text-primary);
+      border-radius: 2px;
+    }
+    .nav-logo {
+      position: absolute;
+      left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 4px;
+      font-family: var(--font-d);
+      font-size: 17px; letter-spacing: 2px;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+    .nav-logo-rocket {
+      font-size: 13px; color: var(--yellow);
+      flex-shrink: 0; line-height: 1;
+      position: relative; top: -2px;
+    }
+    .nav-admin {
+      margin-left: auto;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 1.8px; text-transform: uppercase;
+      color: var(--text-sub);
+      border: 1px solid var(--border-dark);
+      border-radius: 5px; padding: 7px 16px;
+      background: transparent; text-decoration: none;
+    }
+    .nav-admin:hover { border-color: var(--yellow); color: var(--accent); }
+
+    /* ── DRAWER ── */
+    .nav-drawer {
+      position: fixed;
+      top: 60px; left: 0; right: 0;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0) 100%);
+      backdrop-filter: none;
+      z-index: 999;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      padding: 6px 20px 6px;
+      transform: translateY(-110%);
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s;
+      visibility: hidden;
+      pointer-events: none;
+      border-bottom: none;
+    }
+    .nav-drawer.open { transform: translateY(0); visibility: visible; pointer-events: auto; }
+    .nav-drawer a {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 24px;
+      align-self: center;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .nav-drawer a:hover { color: var(--text-primary); }
+    .nav-drawer a.active { color: var(--accent); font-weight: 700; }
+
+    /* ── PAGE ── */
+    .page-main {
+      padding-top: 80px;
+      padding-bottom: 60px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── 헤더 ── */
+    .note-header {
+      margin-bottom: 32px;
+    }
+    .note-overline {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 2px; text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .note-title {
+      font-family: var(--font-d);
+      font-size: 32px; letter-spacing: 3px;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+    .note-desc {
+      font-size: 13px; color: var(--text-muted);
+    }
+
+    /* ── 자본금 편집 바 ── */
+    .capital-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 13px 18px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .capital-label {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 1.2px; text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .capital-display {
+      font-family: var(--font-d);
+      font-size: 20px; letter-spacing: 1px;
+      color: var(--text-primary);
+      min-width: 110px;
+    }
+    .capital-input {
+      display: none;
+      border: 1.5px solid var(--yellow);
+      border-radius: 7px;
+      padding: 6px 12px;
+      font-family: var(--font-main);
+      font-size: 14px; font-weight: 600;
+      color: var(--text-primary);
+      background: #fffbe6;
+      width: 130px;
+    }
+    .capital-input:focus { outline: none; }
+    .capital-btn {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.8px; text-transform: uppercase;
+      padding: 6px 14px; border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .capital-btn.edit   { background: rgba(245,196,0,0.12); color: #a07800; border: 1px solid rgba(245,196,0,0.4); }
+    .capital-btn.save   { background: var(--yellow); color: #000; border: none; display: none; }
+    .capital-btn.cancel { background: #f0f0f0; color: var(--text-muted); border: 1px solid var(--border); display: none; }
+    .capital-hint {
+      font-size: 11px; color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* ── 주차 드롭다운 ── */
+    .week-selector-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+    .week-selector-label {
+      font-size: 12px; font-weight: 600;
+      letter-spacing: 1px; text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .week-select {
+      appearance: none;
+      background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238a95a3' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;
+      border: 1px solid var(--border-dark);
+      border-radius: 8px;
+      padding: 9px 40px 9px 16px;
+      font-family: var(--font-main);
+      font-size: 13px; font-weight: 600;
+      color: var(--text-primary);
+      cursor: pointer;
+      min-width: 160px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      transition: border-color 0.15s;
+    }
+    .week-select:focus { outline: none; border-color: var(--yellow); }
+    .week-select:hover { border-color: var(--yellow); }
+
+    .week-badge {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase;
+      padding: 5px 12px; border-radius: 20px;
+      background: rgba(245,196,0,0.12);
+      color: #a07800;
+      border: 1px solid rgba(245,196,0,0.35);
+    }
+
+    /* ── 빈 상태 ── */
+    .empty-state {
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state i { font-size: 48px; margin-bottom: 16px; display: block; opacity: 0.2; }
+    .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text-sub); margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; line-height: 1.7; }
+    .empty-state a { color: var(--accent); font-weight: 600; }
+
+    /* ── 카드 ── */
+    .note-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .note-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+    }
+    .note-card-title {
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase;
+      color: var(--text-primary);
+    }
+    .note-card-icon { color: var(--yellow); font-size: 14px; }
+
+    /* ── 요약 KPI ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+    }
+    .summary-item {
+      padding: 20px 24px;
+      border-right: 1px solid var(--border);
+    }
+    .summary-item:last-child { border-right: none; }
+    .summary-label {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 1.2px; text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .summary-val {
+      font-family: var(--font-d);
+      font-size: 26px; letter-spacing: 1px;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .summary-val.pos { color: var(--green); }
+    .summary-val.neg { color: var(--red); }
+    .summary-val.yellow { color: #a07800; }
+
+    /* ── 일별 메인 테이블 ── */
+    .note-table-wrap { overflow-x: auto; }
+    .note-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 760px;
+    }
+    .note-table thead tr {
+      background: #f8f9fb;
+    }
+    .note-table th {
+      padding: 11px 14px;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.8px; text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 2px solid var(--border);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .note-table th:first-child { text-align: left; }
+    .note-table td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-sub);
+      vertical-align: middle;
+    }
+    .note-table td:first-child { text-align: left; }
+    .note-table tbody tr:last-child td { border-bottom: none; }
+    .note-table tbody tr:hover { background: #f9fafc; }
+
+    .day-cell { font-weight: 700; color: var(--text-primary); font-size: 13px; }
+    .day-date { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-top: 1px; }
+    .time-cell { font-size: 12px; font-family: 'Courier New', monospace; color: var(--text-sub); }
+    .duration-cell { font-size: 12px; color: var(--text-sub); }
+    .trades-cell { font-weight: 600; color: var(--text-primary); }
+    .winrate-cell { font-weight: 600; }
+    .winrate-cell.good { color: var(--green); }
+    .winrate-cell.bad  { color: var(--red); }
+
+    .profit-chip {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .profit-chip.pos { background: var(--green-bg); color: var(--green); }
+    .profit-chip.neg { background: var(--red-bg);   color: var(--red); }
+    .profit-chip.zero{ background: #f0f0f0; color: var(--text-muted); }
+
+    .lot-chip {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-size: 12px; font-weight: 600;
+      background: rgba(59,130,246,0.08);
+      color: var(--blue);
+    }
+
+    /* ── 하단 요약 바 ── */
+    .note-summary-bar {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 16px 20px;
+      background: #fafbfc;
+      border-top: 2px solid var(--border);
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+    .sum-item { display: flex; align-items: center; gap: 8px; }
+    .sum-label {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 1px; text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .sum-val {
+      font-family: var(--font-d);
+      font-size: 20px; letter-spacing: 1px;
+    }
+    .sum-val.yellow-bg {
+      background: var(--yellow-bg);
+      border: 1px solid rgba(245,196,0,0.4);
+      color: #7a5c00;
+      padding: 2px 12px; border-radius: 6px;
+    }
+    .sum-val.green-bg {
+      background: var(--green-bg);
+      border: 1px solid rgba(34,160,107,0.3);
+      color: var(--green);
+      padding: 2px 12px; border-radius: 6px;
+    }
+    .sum-sep {
+      width: 1px; height: 24px;
+      background: var(--border);
+    }
+
+    /* ── 노 데이터 주차 ── */
+    .no-trade-day {
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 12px;
+    }
+
+    /* ── 매매 복기 코멘트 ── */
+    .comment-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 20px;
+    }
+    .comment-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .comment-card-icon {
+      color: var(--accent);
+      font-size: 14px;
+    }
+    .comment-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: var(--text-primary);
+    }
+    .comment-card-meta {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    /* 표시 모드 */
+    .comment-display {
+      min-height: 60px;
+      font-size: 13.5px;
+      line-height: 1.75;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-all;
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: var(--bg-sub);
+      border: 1px dashed var(--border);
+      transition: border-color .18s, background .18s;
+    }
+    .comment-display:hover {
+      border-color: var(--accent);
+      background: #fffbf0;
+    }
+    .comment-display.empty {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    /* 편집 모드 */
+    .comment-textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      font-size: 13.5px;
+      line-height: 1.75;
+      color: var(--text-primary);
+      background: #fff;
+      border: 1.5px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 14px;
+      outline: none;
+      font-family: var(--font-s), sans-serif;
+      transition: box-shadow .18s;
+      display: none;
+    }
+    .comment-textarea:focus {
+      box-shadow: 0 0 0 3px rgba(245,196,0,0.15);
+    }
+    .comment-actions {
+      display: none;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .comment-btn {
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s;
+    }
+    .comment-btn:hover { opacity: .8; }
+    .comment-btn.save {
+      background: var(--yellow);
+      color: #7a5c00;
+    }
+    .comment-btn.cancel {
+      background: var(--bg);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .comment-saved-hint {
+      font-size: 11px;
+      color: var(--green);
+      margin-right: auto;
+      align-self: center;
+      display: none;
+    }
+
+    /* ── footer ── */
+    .site-footer {
+      background: #fff;
+      border-top: 1px solid var(--border);
+      padding: 24px 0;
+    }
+    .footer-content {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    .footer-brand {
+      display: flex; align-items: center; gap: 4px;
+      font-family: var(--font-d);
+      font-size: 17px; letter-spacing: 2px;
+      color: var(--text-muted);
+    }
+    .footer-brand .footer-rocket {
+      font-size: 13px; color: var(--yellow); position: relative; top: -1px;
+    }
+    .footer-disclaimer {
+      font-size: 11px; color: #bbb; text-align: center;
+    }
+
+    @media (max-width: 700px) {
+      .summary-grid { grid-template-columns: 1fr 1fr 1fr; }
+      .summary-item { border-right: none; border-bottom: 1px solid var(--border); }
+      .site-nav { padding: 0 16px; }
+      .container { padding: 0 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav class="site-nav" id="siteNav">
+  <button class="nav-menu-btn" id="navMenuBtn" aria-label="메뉴">
+    <span></span><span></span><span></span>
+  </button>
+  <a href="index.html" class="nav-logo">
+    <i class="fas fa-rocket nav-logo-rocket"></i>334&thinsp;TRADINGLOG
+  </a>
+  <a href="admin.html" class="nav-admin">ADMIN</a>
+</nav>
+<div class="nav-drawer" id="navDrawer">
+  <a href="index.html"><i class="fas fa-chart-line"></i> 대시보드</a>
+  <a href="trades.html"><i class="fas fa-list"></i> 거래내역</a>
+  <a href="analytics.html"><i class="fas fa-chart-bar"></i> 분석</a>
+  <a href="strategy.html"><i class="fas fa-chess"></i> 매매전략</a>
+  <a href="note.html" class="active"><i class="fas fa-book-open"></i> 트레이딩 노트 헌정</a>
+  <a href="admin.html"><i class="fas fa-cog"></i> 관리자 패널</a>
+</div>
+
+<!-- ── MAIN ── -->
+<main class="page-main">
+  <div class="container">
+
+    <!-- 헤더 -->
+    <div class="note-header">
+      <div class="note-overline">Trading Note</div>
+      <div class="note-title">트레이딩 노트 헌정</div>
+      <div class="note-desc">MT4 · EA 매매 — 주차별 일별 운영 기록</div>
+    </div>
+
+    <!-- 자본금 편집 바 -->
+    <div class="capital-bar">
+      <span class="capital-label"><i class="fas fa-wallet" style="margin-right:6px;"></i>자본금</span>
+      <span class="capital-display" id="capitalDisplay">$1,000</span>
+      <input class="capital-input" id="capitalInput" type="number" min="1" step="1" value="1000" />
+      <button class="capital-btn edit"  id="capitalEditBtn">수정</button>
+      <button class="capital-btn save"  id="capitalSaveBtn">저장</button>
+      <button class="capital-btn cancel" id="capitalCancelBtn">취소</button>
+      <span class="capital-hint">수정 후 저장하면 수익률이 재계산됩니다</span>
+    </div>
+
+    <!-- 주차 드롭다운 -->
+    <div class="week-selector-bar">
+      <span class="week-selector-label"><i class="fas fa-calendar-week" style="margin-right:5px;"></i>주차 선택</span>
+      <select class="week-select" id="weekSelect">
+        <option value="">-- 주차를 선택하세요 --</option>
+      </select>
+      <span class="week-badge" id="weekBadge" style="display:none;"></span>
+      <button id="noteExcelBtn" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 14px;background:#1d6f42;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background .18s;opacity:.45;" title="주차를 선택하면 활성화됩니다" disabled>
+        <i class="fas fa-file-excel"></i> 엑셀 다운로드
+      </button>
+    </div>
+
+    <!-- 콘텐츠 영역 -->
+    <div id="noteContent"></div>
+
+  </div>
+</main>
+
+<!-- ── FOOTER ── -->
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-content">
+      <div class="footer-brand"><i class="fas fa-rocket footer-rocket"></i>334&thinsp;TRADINGLOG</div>
+      <p class="footer-disclaimer">⚠️ 본 사이트는 개인 매매기록 아카이브입니다.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="js/utils.v11.js"></script>
+<script src="js/excel.v11.js"></script>
+<script src="js/note.v11.js"></script>
+<script>
+  const navMenuBtn = document.getElementById('navMenuBtn');
+  const navDrawer  = document.getElementById('navDrawer');
+  let hoverTimer;
+  const openDrawer  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
+  const closeDrawer = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
+  navMenuBtn.addEventListener('mouseenter', openDrawer);
+  navMenuBtn.addEventListener('mouseleave', closeDrawer);
+  navDrawer.addEventListener('mouseenter', openDrawer);
+  navDrawer.addEventListener('mouseleave', closeDrawer);
+  navMenuBtn.addEventListener('click', () => navDrawer.classList.toggle('open'));
+</script>
+</body>
+</html>

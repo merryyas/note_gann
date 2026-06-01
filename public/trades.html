@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>거래내역 — 334 TRADINGLOG</title>
+  <link rel="stylesheet" href="css/style.v11.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <style>
+    .site-nav { position:fixed !important; top:0; left:0; right:0; z-index:1000; height:60px; display:flex !important; align-items:center !important; padding:0 40px; background:rgba(26,35,45,0.95); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,0.08); }
+    .nav-menu-btn { width:42px; height:32px; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; background:transparent !important; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:center !important; justify-content:center !important; gap:5px; flex-shrink:0; }
+    .nav-menu-btn span { display:block !important; width:16px; height:1.5px; background:#fff !important; border-radius:2px; }
+    .nav-logo { position:absolute !important; left:50% !important; transform:translateX(-50%) !important; display:flex !important; align-items:center !important; gap:4px; font-family:'Bebas Neue',sans-serif; font-size:17px; letter-spacing:2px; color:#fff !important; text-decoration:none !important; }
+    .nav-logo-dot { display:none; } .nav-logo-rocket { font-size:13px; color:#f5c400; flex-shrink:0; line-height:1; position:relative; top:-2px; }
+    .nav-admin { margin-left:auto !important; font-size:10px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#fff !important; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; padding:7px 16px; background:transparent !important; text-decoration:none !important; }
+    .nav-admin:hover { border-color:#f5c400 !important; color:#f5c400 !important; }
+    .nav-drawer { position:fixed !important; top:60px; left:0; right:0; background:linear-gradient(to bottom, rgba(26,35,45,0.7) 0%, rgba(26,35,45,0) 100%) !important; backdrop-filter:none; border-bottom:none; z-index:999; display:grid !important; grid-template-columns:repeat(2,1fr) !important; grid-template-rows:repeat(3,1fr) !important; padding:6px 20px 6px; transform:translateY(-110%) !important; transition:transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s; visibility:hidden !important; pointer-events:none !important; }
+    .nav-drawer.open { transform:translateY(0) !important; visibility:visible !important; pointer-events:auto !important; }
+    .nav-drawer a { display:flex !important; align-items:center; gap:10px; padding:10px 24px; align-self:center; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.6) !important; text-decoration:none !important; transition:color 0.15s; }
+    .nav-drawer a:hover { color:#fff !important; }
+    .nav-drawer a.active { color:#f5c400 !important; }
+  </style>
+</head>
+<body>
+
+<nav class="site-nav" id="siteNav">
+  <button class="nav-menu-btn" id="navMenuBtn"><span></span><span></span><span></span></button>
+  <a href="index.html" class="nav-logo"><i class="fas fa-rocket nav-logo-rocket"></i>334&thinsp;TRADINGLOG</a>
+  <a href="admin.html" class="nav-admin">ADMIN</a>
+</nav>
+<div class="nav-drawer" id="navDrawer">
+  <a href="index.html"><i class="fas fa-chart-line"></i> 대시보드</a>
+  <a href="trades.html" class="active"><i class="fas fa-list"></i> 거래내역</a>
+  <a href="analytics.html"><i class="fas fa-chart-bar"></i> 분석</a>
+  <a href="strategy.html"><i class="fas fa-chess"></i> 매매전략</a>
+  <a href="note.html"><i class="fas fa-book-open"></i> 트레이딩 노트 헌정</a>
+  <a href="admin.html"><i class="fas fa-cog"></i> 관리자 패널</a>
+</div>
+
+<main class="page-main">
+  <div class="container">
+    <div class="page-title-bar">
+      <div>
+        <div class="s-overline">Trade History</div>
+        <h1>거래내역</h1>
+      </div>
+      <div id="tradesSummary" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+        <span id="statsFiltered" style="font-size:13px;color:var(--text-muted);">0건</span>
+        <span id="statsFilteredProfit" style="font-size:13px;"></span>
+        <span id="statsFilteredWin" style="font-size:13px;color:var(--text-muted);"></span>
+        <button id="excelDownloadBtn" onclick="excelExport.trades(filteredTrades, currentTZ)" style="margin-left:auto;display:flex;align-items:center;gap:7px;background:#1d6f42;color:#fff;border:none;border-radius:7px;padding:8px 16px;font-size:12px;font-weight:700;letter-spacing:0.8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#165533'" onmouseout="this.style.background='#1d6f42'"><i class="fas fa-file-excel"></i> 엑셀 다운로드</button>
+      </div>
+    </div>
+
+    <!-- 필터 -->
+    <div class="filter-bar" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+      <div class="filter-group">
+        <label>플랫폼</label>
+        <select id="filterPlatform"><option value="">전체</option><option value="MT4">MT4</option><option value="MT5">MT5</option></select>
+      </div>
+      <div class="filter-group">
+        <label>유형</label>
+        <select id="filterType"><option value="">전체</option><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      </div>
+      <div class="filter-group">
+        <label>심볼</label>
+        <select id="filterSymbol"><option value="">전체</option></select>
+      </div>
+      <div class="filter-group">
+        <label>수익/손실</label>
+        <select id="filterPnl"><option value="">전체</option><option value="profit">수익만</option><option value="loss">손실만</option></select>
+      </div>
+      <div class="filter-group">
+        <label>시작일</label>
+        <input type="date" id="filterDateFrom" />
+      </div>
+      <div class="filter-group">
+        <label>종료일</label>
+        <input type="date" id="filterDateTo" />
+      </div>
+      <div class="filter-group">
+        <label>정렬</label>
+        <select id="sortField">
+          <option value="close_time">청산일시</option>
+          <option value="open_time">진입일시</option>
+          <option value="profit">수익</option>
+          <option value="symbol">심볼</option>
+          <option value="lots">랏</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>순서</label>
+        <select id="sortDir"><option value="desc">내림차순</option><option value="asc">오름차순</option></select>
+      </div>
+      <div class="filter-group">
+        <label>페이지당</label>
+        <select id="pageSize"><option value="20">20건</option><option value="50">50건</option><option value="100">100건</option></select>
+      </div>
+      <div class="filter-group">
+        <label>🕐 시간대</label>
+        <select id="tzSelect">
+          <option value="server">서버시각 (MT4 원본)</option>
+          <option value="kst">서울 (KST, +6h)</option>
+          <option value="ny">뉴욕 (ET, -7/-8h)</option>
+        </select>
+      </div>
+      <button id="filterReset" class="btn-logout" style="align-self:flex-end;"><i class="fas fa-rotate-left"></i> 초기화</button>
+    </div>
+
+    <!-- 테이블 -->
+    <div class="table-wrapper">
+      <table class="trades-table">
+        <thead>
+          <tr>
+            <th>티켓</th><th>심볼</th><th>유형</th><th>랏</th>
+            <th>진입가</th><th>청산가</th><th>핍</th>
+            <th>진입일시</th><th>청산일시</th><th>수익</th><th>플랫폼</th>
+          </tr>
+        </thead>
+        <tbody id="allTradesTbody">
+          <tr><td colspan="11" class="empty-msg"><i class="fas fa-spinner fa-spin"></i> 로딩 중...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="pagination" style="display:flex;gap:6px;justify-content:center;margin-top:20px;flex-wrap:wrap;"></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-content">
+      <div class="footer-brand"><i class="fas fa-rocket footer-rocket"></i>334&thinsp;TRADINGLOG</div>
+      <p class="footer-disclaimer">⚠️ 본 사이트는 개인 매매기록 아카이브입니다.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="js/utils.v11.js"></script>
+<script src="js/excel.v11.js"></script>
+<script src="js/trades.v11.js"></script>
+<script>
+  const navMenuBtn = document.getElementById('navMenuBtn');
+  const navDrawer  = document.getElementById('navDrawer');
+  let hoverTimer;
+  const openDrawer  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
+  const closeDrawer = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
+  navMenuBtn.addEventListener('mouseenter', openDrawer);
+  navMenuBtn.addEventListener('mouseleave', closeDrawer);
+  navDrawer.addEventListener('mouseenter', openDrawer);
+  navDrawer.addEventListener('mouseleave', closeDrawer);
+  navMenuBtn.addEventListener('click', () => navDrawer.classList.toggle('open'));
+</script>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>매매전략 — 334 TRADINGLOG</title>
+  <link rel="stylesheet" href="css/style.v11.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .site-nav { position:fixed !important; top:0; left:0; right:0; z-index:1000; height:60px; display:flex !important; align-items:center !important; padding:0 40px; background:rgba(26,35,45,0.95); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,0.08); }
+    .nav-menu-btn { width:42px; height:32px; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; background:transparent !important; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:center !important; justify-content:center !important; gap:5px; flex-shrink:0; }
+    .nav-menu-btn span { display:block !important; width:16px; height:1.5px; background:#fff !important; border-radius:2px; }
+    .nav-logo { position:absolute !important; left:50% !important; transform:translateX(-50%) !important; display:flex !important; align-items:center !important; gap:4px; font-family:'Bebas Neue',sans-serif; font-size:17px; letter-spacing:2px; color:#fff !important; text-decoration:none !important; }
+    .nav-logo-dot { display:none; } .nav-logo-rocket { font-size:13px; color:#f5c400; flex-shrink:0; line-height:1; position:relative; top:-2px; }
+    .nav-admin { margin-left:auto !important; font-size:10px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#fff !important; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; padding:7px 16px; background:transparent !important; text-decoration:none !important; }
+    .nav-admin:hover { border-color:#f5c400 !important; color:#f5c400 !important; }
+    .nav-drawer { position:fixed !important; top:60px; left:0; right:0; background:linear-gradient(to bottom, rgba(26,35,45,0.7) 0%, rgba(26,35,45,0) 100%) !important; backdrop-filter:none; border-bottom:none; z-index:999; display:grid !important; grid-template-columns:repeat(2,1fr) !important; grid-template-rows:repeat(3,1fr) !important; padding:6px 20px 6px; transform:translateY(-110%) !important; transition:transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s; visibility:hidden !important; pointer-events:none !important; }
+    .nav-drawer.open { transform:translateY(0) !important; visibility:visible !important; pointer-events:auto !important; }
+    .nav-drawer a { display:flex !important; align-items:center; gap:10px; padding:10px 24px; align-self:center; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.6) !important; text-decoration:none !important; transition:color 0.15s; }
+    .nav-drawer a:hover { color:#fff !important; }
+    .nav-drawer a.active { color:#f5c400 !important; }
+
+    /* ── 전략 페이지 레이아웃 ── */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: 1fr 1px 1fr;
+      gap: 0 32px;
+      align-items: start;
+    }
+    .strategy-divider {
+      background: linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.12) 20%, rgba(255,255,255,0.12) 80%, transparent 100%);
+      align-self: stretch;
+    }
+    .strategy-col {
+      min-width: 0;
+    }
+    .strategy-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .strategy-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .strategy-icon.ea   { background: rgba(245,196,0,0.12); color: #f5c400; }
+    .strategy-icon.bo   { background: rgba(91,168,224,0.12); color: #5ba8e0; }
+    .strategy-name {
+      font-family: var(--font-d);
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+    .strategy-sub {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .strategy-badge {
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+      flex-shrink: 0;
+    }
+    .strategy-badge.mt4 { background: rgba(245,196,0,0.15); color: #f5c400; border: 1px solid rgba(245,196,0,0.3); }
+    .strategy-badge.mt5 { background: rgba(91,168,224,0.15); color: #5ba8e0; border: 1px solid rgba(91,168,224,0.3); }
+
+    /* KPI 카드 */
+    .kpi-mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .kpi-mini {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+    .kpi-mini-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .kpi-mini-val {
+      font-family: var(--font-d);
+      font-size: 22px;
+      letter-spacing: 1px;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .kpi-mini-val.pos { color: var(--green); }
+    .kpi-mini-val.neg { color: var(--red); }
+    .kpi-mini-val.yellow { color: var(--yellow); }
+
+    /* 차트 래퍼 */
+    .s-chart-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .s-chart-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    /* 심볼 미니 테이블 */
+    .s-symbol-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .s-symbol-table th {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+    .s-symbol-table td {
+      padding: 7px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+    }
+    .s-symbol-table tr:last-child td { border-bottom: none; }
+    .s-symbol-table td.sym-name { font-weight: 600; color: var(--text-primary); }
+    .s-symbol-table td.pos { color: var(--green); }
+    .s-symbol-table td.neg { color: var(--red); }
+
+    /* 빈 상태 */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state i { font-size: 40px; margin-bottom: 14px; display: block; opacity: 0.25; }
+    .empty-state p { font-size: 13px; line-height: 1.6; }
+    .empty-state a { color: var(--yellow); text-decoration: none; }
+
+    @media (max-width: 900px) {
+      .strategy-grid {
+        grid-template-columns: 1fr;
+      }
+      .strategy-divider {
+        height: 1px;
+        width: 100%;
+        background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.12) 20%, rgba(255,255,255,0.12) 80%, transparent 100%);
+        margin: 32px 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="site-nav" id="siteNav">
+  <button class="nav-menu-btn" id="navMenuBtn"><span></span><span></span><span></span></button>
+  <a href="index.html" class="nav-logo"><i class="fas fa-rocket nav-logo-rocket"></i>334&thinsp;TRADINGLOG</a>
+  <a href="admin.html" class="nav-admin">ADMIN</a>
+</nav>
+<div class="nav-drawer" id="navDrawer">
+  <a href="index.html"><i class="fas fa-chart-line"></i> 대시보드</a>
+  <a href="trades.html"><i class="fas fa-list"></i> 거래내역</a>
+  <a href="analytics.html"><i class="fas fa-chart-bar"></i> 분석</a>
+  <a href="strategy.html" class="active"><i class="fas fa-chess"></i> 매매전략</a>
+  <a href="note.html"><i class="fas fa-book-open"></i> 트레이딩 노트 헌정</a>
+  <a href="admin.html"><i class="fas fa-cog"></i> 관리자 패널</a>
+</div>
+
+<main class="page-main">
+  <div class="container">
+
+    <div class="page-title-bar">
+      <div>
+        <div class="s-overline">Strategy Performance</div>
+        <h1>매매전략</h1>
+      </div>
+    </div>
+
+    <div class="strategy-grid">
+
+      <!-- ── 전략 1: EA 매매 (MT4) ── -->
+      <section class="strategy-col" id="col-ea">
+        <div class="strategy-header">
+          <div class="strategy-icon ea"><i class="fas fa-robot"></i></div>
+          <div>
+            <div class="strategy-name">전략 1 · EA 매매</div>
+            <div class="strategy-sub">Expert Advisor · 자동매매</div>
+          </div>
+          <span class="strategy-badge mt4">MT4</span>
+        </div>
+        <div id="ea-content">
+          <!-- JS로 채워짐 -->
+        </div>
+      </section>
+
+      <!-- ── 구분선 ── -->
+      <div class="strategy-divider"></div>
+
+      <!-- ── 전략 2: 브레이크아웃 (MT5) ── -->
+      <section class="strategy-col" id="col-bo">
+        <div class="strategy-header">
+          <div class="strategy-icon bo"><i class="fas fa-bolt"></i></div>
+          <div>
+            <div class="strategy-name">전략 2 · 브레이크아웃</div>
+            <div class="strategy-sub">Breakout Strategy · 수동매매</div>
+          </div>
+          <span class="strategy-badge mt5">MT5</span>
+        </div>
+        <div id="bo-content">
+          <!-- JS로 채워짐 -->
+        </div>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-content">
+      <div class="footer-brand"><i class="fas fa-rocket footer-rocket"></i>334&thinsp;TRADINGLOG</div>
+      <p class="footer-disclaimer">⚠️ 본 사이트는 개인 매매기록 아카이브입니다.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="js/utils.v11.js"></script>
+<script src="js/strategy.v11.js"></script>
+<script>
+  const navMenuBtn = document.getElementById('navMenuBtn');
+  const navDrawer  = document.getElementById('navDrawer');
+  let hoverTimer;
+  const openDrawer  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
+  const closeDrawer = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
+  navMenuBtn.addEventListener('mouseenter', openDrawer);
+  navMenuBtn.addEventListener('mouseleave', closeDrawer);
+  navDrawer.addEventListener('mouseenter', openDrawer);
+  navDrawer.addEventListener('mouseleave', closeDrawer);
+  navMenuBtn.addEventListener('click', () => navDrawer.classList.toggle('open'));
+</script>
+</body>
+</html>

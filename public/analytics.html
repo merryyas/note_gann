@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>분석 — 334 TRADINGLOG</title>
+  <link rel="stylesheet" href="css/style.v11.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .site-nav { position:fixed !important; top:0; left:0; right:0; z-index:1000; height:60px; display:flex !important; align-items:center !important; padding:0 40px; background:rgba(26,35,45,0.95); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,0.08); }
+    .nav-menu-btn { width:42px; height:32px; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; background:transparent !important; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:center !important; justify-content:center !important; gap:5px; flex-shrink:0; }
+    .nav-menu-btn span { display:block !important; width:16px; height:1.5px; background:#fff !important; border-radius:2px; }
+    .nav-logo { position:absolute !important; left:50% !important; transform:translateX(-50%) !important; display:flex !important; align-items:center !important; gap:4px; font-family:'Bebas Neue',sans-serif; font-size:17px; letter-spacing:2px; color:#fff !important; text-decoration:none !important; }
+    .nav-logo-dot { display:none; } .nav-logo-rocket { font-size:13px; color:#f5c400; flex-shrink:0; line-height:1; position:relative; top:-2px; }
+    .nav-admin { margin-left:auto !important; font-size:10px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#fff !important; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; padding:7px 16px; background:transparent !important; text-decoration:none !important; }
+    .nav-admin:hover { border-color:#f5c400 !important; color:#f5c400 !important; }
+    .nav-drawer { position:fixed !important; top:60px; left:0; right:0; background:linear-gradient(to bottom, rgba(26,35,45,0.7) 0%, rgba(26,35,45,0) 100%) !important; backdrop-filter:none; border-bottom:none; z-index:999; display:grid !important; grid-template-columns:repeat(2,1fr) !important; grid-template-rows:repeat(3,1fr) !important; padding:6px 20px 6px; transform:translateY(-110%) !important; transition:transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s; visibility:hidden !important; pointer-events:none !important; }
+    .nav-drawer.open { transform:translateY(0) !important; visibility:visible !important; pointer-events:auto !important; }
+    .nav-drawer a { display:flex !important; align-items:center; gap:10px; padding:10px 24px; align-self:center; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.6) !important; text-decoration:none !important; transition:color 0.15s; }
+    .nav-drawer a:hover { color:#fff !important; }
+    .nav-drawer a.active { color:#f5c400 !important; }
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin-bottom:32px; }
+    .stat-box { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:20px; }
+    .stat-box-label { font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
+    .stat-box-val { font-family:var(--font-d); font-size:28px; letter-spacing:1px; color:var(--text-primary); }
+    .stat-box-val.pos { color:var(--green); }
+    .stat-box-val.neg { color:var(--red); }
+    .chart-wrap { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:24px; margin-bottom:24px; }
+    .chart-wrap h3 { font-family:var(--font-d); font-size:18px; letter-spacing:1.5px; color:var(--text-primary); margin-bottom:20px; }
+  </style>
+</head>
+<body>
+
+<nav class="site-nav" id="siteNav">
+  <button class="nav-menu-btn" id="navMenuBtn"><span></span><span></span><span></span></button>
+  <a href="index.html" class="nav-logo"><i class="fas fa-rocket nav-logo-rocket"></i>334&thinsp;TRADINGLOG</a>
+  <a href="admin.html" class="nav-admin">ADMIN</a>
+</nav>
+<div class="nav-drawer" id="navDrawer">
+  <a href="index.html"><i class="fas fa-chart-line"></i> 대시보드</a>
+  <a href="trades.html"><i class="fas fa-list"></i> 거래내역</a>
+  <a href="analytics.html" class="active"><i class="fas fa-chart-bar"></i> 분석</a>
+  <a href="strategy.html"><i class="fas fa-chess"></i> 매매전략</a>
+  <a href="note.html"><i class="fas fa-book-open"></i> 트레이딩 노트 헌정</a>
+  <a href="admin.html"><i class="fas fa-cog"></i> 관리자 패널</a>
+</div>
+
+<main class="page-main">
+  <div class="container">
+    <div class="page-title-bar">
+      <div><div class="s-overline">Performance Analytics</div><h1>심층 분석</h1></div>
+      <button id="excelDownloadBtn" style="display:flex;align-items:center;gap:7px;background:#1d6f42;color:#fff;border:none;border-radius:7px;padding:9px 18px;font-size:12px;font-weight:700;letter-spacing:0.8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#165533'" onmouseout="this.style.background='#1d6f42'"><i class="fas fa-file-excel"></i> 엑셀 다운로드</button>
+    </div>
+
+    <div id="noDataMsg" style="display:none;text-align:center;padding:80px 0;color:var(--text-muted);">
+      <i class="fas fa-chart-bar" style="font-size:48px;margin-bottom:16px;display:block;opacity:0.3;"></i>
+      <p>업로드된 거래 데이터가 없습니다. <a href="admin.html" style="color:var(--yellow);">관리자 패널</a>에서 데이터를 업로드해주세요.</p>
+    </div>
+
+    <div id="analyticsContent">
+      <!-- 핵심 지표 -->
+      <div class="stat-grid" id="statGrid"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <!-- 요일별 평균 수익 -->
+        <div class="chart-wrap">
+          <h3><i class="fas fa-calendar-week" style="color:var(--yellow);margin-right:8px;"></i>요일별 평균 수익</h3>
+          <div style="height:260px;"><canvas id="dowChart"></canvas></div>
+        </div>
+        <!-- 시간대별 평균 수익 -->
+        <div class="chart-wrap">
+          <h3><i class="fas fa-clock" style="color:var(--blue);margin-right:8px;"></i>시간대별 평균 수익</h3>
+          <div style="height:260px;"><canvas id="hourChart"></canvas></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <!-- 수익 분포 -->
+        <div class="chart-wrap">
+          <h3><i class="fas fa-chart-bar" style="color:var(--green);margin-right:8px;"></i>수익 분포</h3>
+          <div style="height:260px;"><canvas id="distChart"></canvas></div>
+        </div>
+        <!-- 보유 시간 분포 -->
+        <div class="chart-wrap">
+          <h3><i class="fas fa-hourglass-half" style="color:var(--purple);margin-right:8px;"></i>보유 시간 분포</h3>
+          <div style="height:260px;"><canvas id="durationChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- 심볼별 성과 -->
+      <div class="chart-wrap">
+        <h3><i class="fas fa-coins" style="color:var(--yellow);margin-right:8px;"></i>심볼별 성과</h3>
+        <div class="table-wrapper">
+          <table class="trades-table" id="symbolTable">
+            <thead><tr><th>심볼</th><th>거래수</th><th>승률</th><th>총 수익</th><th>평균 수익</th><th>최대 수익</th><th>최대 손실</th></tr></thead>
+            <tbody id="symbolTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-content">
+      <div class="footer-brand"><i class="fas fa-rocket footer-rocket"></i>334&thinsp;TRADINGLOG</div>
+      <p class="footer-disclaimer">⚠️ 본 사이트는 개인 매매기록 아카이브입니다.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="js/utils.v11.js"></script>
+<script src="js/excel.v5.js"></script>
+<script src="js/analytics.v11.js"></script>
+<script>
+  const navMenuBtn = document.getElementById('navMenuBtn');
+  const navDrawer  = document.getElementById('navDrawer');
+  let hoverTimer;
+  const openDrawer  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
+  const closeDrawer = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
+  navMenuBtn.addEventListener('mouseenter', openDrawer);
+  navMenuBtn.addEventListener('mouseleave', closeDrawer);
+  navDrawer.addEventListener('mouseenter', openDrawer);
+  navDrawer.addEventListener('mouseleave', closeDrawer);
+  navMenuBtn.addEventListener('click', () => navDrawer.classList.toggle('open'));
+</script>
+</body>
+</html>
