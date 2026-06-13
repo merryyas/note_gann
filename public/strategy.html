@@ -585,30 +585,61 @@
           <div class="pr">
             <span class="pr-label">데이터 소스</span>
             <select id="paramSource" class="pr-select" onchange="onSourceChange()">
-              <option value="twelvedata" selected>Twelve Data (분봉 가능)</option>
-              <option value="stooq">Stooq (일봉만, 무료)</option>
-              <option value="upload">CSV 직접 업로드</option>
+              <option value="upload" selected>📂 CSV 업로드 (권장 · 가장 빠름)</option>
+              <option value="twelvedata">Twelve Data API (분봉, 느림)</option>
+              <option value="stooq">Stooq API (일봉만)</option>
             </select>
           </div>
-          <div id="apiKeyRow" class="pr">
+          <div id="apiKeyRow" class="pr" style="display:none;">
             <span class="pr-label">API Key<small>twelvedata.com</small></span>
             <input type="password" id="paramApiKey" class="pr-input" placeholder="키 입력" style="width:130px;" />
           </div>
-          <div id="csvUploadRow" style="display:none;margin-top:8px;">
-            <div class="upload-zone" id="candleUploadZone" style="padding:10px;">
+
+          <!-- CSV 업로드 영역 (기본 표시) -->
+          <div id="csvUploadRow" style="margin-top:8px;">
+            <div class="upload-zone" id="candleUploadZone" style="padding:14px;">
               <input type="file" id="candleFileInput" accept=".csv,.txt" />
-              <div class="upload-zone-icon" style="font-size:18px;"><i class="fas fa-file-csv"></i></div>
-              <div class="upload-zone-text" style="font-size:10px;">
-                <strong>CSV 업로드</strong><br>
-                <span style="font-size:9px;">시각,O,H,L,C 형식</span>
+              <div class="upload-zone-icon" style="font-size:22px;"><i class="fas fa-file-csv"></i></div>
+              <div class="upload-zone-text" style="font-size:11px;line-height:1.4;">
+                <strong>CSV 파일 선택</strong><br>
+                <span style="font-size:9px;opacity:.7;">또는 여기로 드래그</span>
               </div>
             </div>
+
+            <!-- 다운로드 가이드 -->
+            <details style="margin-top:8px;background:rgba(245,196,0,0.06);border:1px solid rgba(245,196,0,0.2);border-radius:6px;padding:8px;">
+              <summary style="cursor:pointer;font-size:11px;color:#f5c400;font-weight:600;list-style:none;">
+                <i class="fas fa-download"></i> 무료 CSV 다운로드 사이트 ▼
+              </summary>
+              <div style="margin-top:8px;font-size:10px;line-height:1.6;color:#cbd5e1;">
+                <div style="margin-bottom:6px;">
+                  <strong style="color:#fbbf24;">🥇 Dukascopy</strong> (1분봉·최고품질)<br>
+                  <a href="https://www.dukascopy.com/swiss/english/marketwatch/historical/" target="_blank" rel="noopener" style="color:#60a5fa;font-size:9px;">↗ historical data feed</a><br>
+                  <span style="font-size:9px;opacity:.7;">XAU/USD → 1 Year → 1 Minute → CSV</span>
+                </div>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:#fbbf24;">🥈 HistData</strong> (월별 ZIP·무료)<br>
+                  <a href="https://www.histdata.com/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/XAUUSD" target="_blank" rel="noopener" style="color:#60a5fa;font-size:9px;">↗ XAUUSD M1 ASCII</a>
+                </div>
+                <div style="margin-bottom:6px;">
+                  <strong style="color:#fbbf24;">🥉 본인 MT4</strong> (실제 거래 브로커)<br>
+                  <span style="font-size:9px;opacity:.8;">도구 → 기록센터 → XAUUSD → M1 → 내보내기</span>
+                </div>
+                <div style="margin-top:8px;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);font-size:9px;opacity:.75;">
+                  <strong>지원 포맷 (자동감지):</strong><br>
+                  • <code style="color:#86efac;">2024-01-15 09:00,O,H,L,C,V</code><br>
+                  • <code style="color:#86efac;">2024.01.15,09:00,O,H,L,C</code> (MT4)<br>
+                  • <code style="color:#86efac;">20240115 090000,O,H,L,C,V</code> (HistData)<br>
+                  • <code style="color:#86efac;">1705305600,O,H,L,C</code> (epoch)
+                </div>
+              </div>
+            </details>
           </div>
 
-          <button class="btn-fetch" id="btnFetch" onclick="fetchCandles()">
-            <i class="fas fa-cloud-download-alt"></i> 차트 데이터 받기
+          <button class="btn-fetch" id="btnFetch" onclick="fetchCandles()" style="display:none;">
+            <i class="fas fa-cloud-download-alt"></i> 차트 데이터 받기 (API)
           </button>
-          <div id="dataStatus" class="data-status">데이터 없음</div>
+          <div id="dataStatus" class="data-status">데이터 없음 — CSV 파일을 선택하세요</div>
 
           <!-- 시간대 보정 -->
           <div class="pr" style="margin-top:10px;">
@@ -986,7 +1017,7 @@
 </footer>
 
 <script src="js/utils.v11.js"></script>
-<script src="js/strategy.v11.js?v=20260613-chunked"></script>
+<script src="js/strategy.v11.js?v=20260613-csv3"></script>
 <script>
   /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');

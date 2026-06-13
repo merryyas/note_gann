@@ -77,6 +77,17 @@ function onSourceChange() {
   const src = document.getElementById('paramSource').value;
   document.getElementById('apiKeyRow').style.display = (src === 'twelvedata') ? '' : 'none';
   document.getElementById('csvUploadRow').style.display = (src === 'upload') ? '' : 'none';
+  // CSV는 파일 선택 시 자동 처리 → "차트 데이터 받기" 버튼 숨김
+  const btn = document.getElementById('btnFetch');
+  if (btn) btn.style.display = (src === 'upload') ? 'none' : '';
+
+  // 상태 메시지도 컨텍스트에 맞게
+  const st = document.getElementById('dataStatus');
+  if (st && !CANDLES.length) {
+    if (src === 'upload') st.innerHTML = '데이터 없음 — CSV 파일을 선택하세요';
+    else if (src === 'twelvedata') st.innerHTML = '데이터 없음 — API 키 입력 후 [받기] 클릭';
+    else st.innerHTML = '데이터 없음 — [받기] 클릭';
+  }
 }
 
 // ── 요일 토글 ──────────────────────────────────────────────
@@ -323,56 +334,198 @@ async function fetchCandles() {
   }
 }
 
-// ── CSV 업로드 처리 ────────────────────────────────────────
+// ── CSV 파싱 유틸 ────────────────────────────────────────────
+// 다양한 포맷 자동 감지: Dukascopy/HistData/MT4/Generic
+function parseTsFlexible(parts) {
+  // parts: 첫 칼럼들 — 1개 또는 2개 (날짜+시간 분리)일 수 있음
+  // 반환: { ts, consumed } — consumed는 사용한 칼럼 수 (1 또는 2)
+  const p0 = (parts[0] || '').trim().replace(/"/g, '');
+  if (!p0) return null;
+
+  // 1) epoch (10자리 sec 또는 13자리 ms)
+  if (/^\d{10,13}$/.test(p0)) {
+    let ts = parseInt(p0);
+    if (ts > 1e12) ts = Math.floor(ts / 1000);
+    return { ts, consumed: 1 };
+  }
+
+  // 2) MT4 표준: "2024.01.15","09:00"  (날짜와 시간 분리)
+  //    또는 HistData: "20240115 090000"
+  //    또는 "2024-01-15","09:00:00"
+  const p1 = (parts[1] || '').trim().replace(/"/g, '');
+
+  // "20240115 090000" 단일 칼럼 (HistData M1 ASCII)
+  const m1 = p0.match(/^(\d{4})(\d{2})(\d{2})[\sT]?(\d{2})(\d{2})(\d{2})?$/);
+  if (m1) {
+    const iso = `${m1[1]}-${m1[2]}-${m1[3]}T${m1[4]}:${m1[5]}:${m1[6]||'00'}Z`;
+    const ts = Math.floor(Date.parse(iso) / 1000);
+    if (!isNaN(ts)) return { ts, consumed: 1 };
+  }
+
+  // 날짜 + 시간이 분리된 경우
+  // p0: 2024.01.15 / 2024-01-15 / 2024/01/15 / 20240115
+  // p1: 09:00 / 09:00:00 / 0900 / 090000
+  const dateOnly = p0.match(/^(\d{4})[.\-\/]?(\d{2})[.\-\/]?(\d{2})$/);
+  if (dateOnly && p1 && /^\d/.test(p1)) {
+    const Y = dateOnly[1], M = dateOnly[2], D = dateOnly[3];
+    let timePart = p1.replace(/[:.]/g, '');
+    if (timePart.length === 4) timePart = timePart + '00';   // 0900 → 090000
+    if (timePart.length === 6) {
+      const h = timePart.slice(0,2), m = timePart.slice(2,4), s = timePart.slice(4,6);
+      const iso = `${Y}-${M}-${D}T${h}:${m}:${s}Z`;
+      const ts = Math.floor(Date.parse(iso) / 1000);
+      if (!isNaN(ts)) return { ts, consumed: 2 };
+    }
+  }
+
+  // 3) Dukascopy 유럽식: "15.01.2024 09:00:00.000" (DD.MM.YYYY HH:mm:ss.sss)
+  const euDate = p0.match(/^(\d{2})\.(\d{2})\.(\d{4})[\sT](\d{2}):(\d{2}):(\d{2})(\.\d+)?$/);
+  if (euDate) {
+    const iso = `${euDate[3]}-${euDate[2]}-${euDate[1]}T${euDate[4]}:${euDate[5]}:${euDate[6]}Z`;
+    const ts = Math.floor(Date.parse(iso) / 1000);
+    if (!isNaN(ts)) return { ts, consumed: 1 };
+  }
+
+  // 4) 단일 칼럼 결합형: "2024-01-15 09:00:00" / "2024.01.15 09:00"
+  const norm = p0
+    .replace(/^(\d{4})[.\/](\d{2})[.\/](\d{2})/, '$1-$2-$3')
+    .replace(' ', 'T');
+  const isoCandidate = norm + (norm.includes('T') ? (norm.length === 16 ? ':00' : '') : 'T00:00:00');
+  const ts = Math.floor(Date.parse(isoCandidate + 'Z') / 1000);
+  if (!isNaN(ts) && ts > 0) return { ts, consumed: 1 };
+
+  return null;
+}
+
+function parseCsvText(text) {
+  const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);  // BOM 제거
+  const candles = [];
+  const errors = [];
+  let formatHint = null;
+
+  // 첫 줄로 구분자 + 헤더 감지
+  if (!lines.length) return { candles, errors: ['빈 파일'], formatHint };
+  const firstLine = lines[0];
+  const sep = firstLine.includes('\t') ? '\t'
+             : firstLine.includes(';') ? ';'
+             : ',';
+
+  // 헤더 라인 감지 (영문자가 의미있게 들어있으면 헤더로 간주)
+  const looksLikeHeader = /[a-zA-Z]/.test(firstLine.replace(/[a-zA-Z]M\b/g, ''))
+                         && !/^\d{4}/.test(firstLine.trim());
+  const startIdx = looksLikeHeader ? 1 : 0;
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = line.split(sep).map(s => s.replace(/^"|"$/g, ''));
+    if (cols.length < 5) {
+      if (errors.length < 5) errors.push(`라인 ${i+1}: 칼럼 부족 (${cols.length}개)`);
+      continue;
+    }
+
+    // 시각 파싱 (1 또는 2칼럼 소비)
+    const tsResult = parseTsFlexible(cols);
+    if (!tsResult) {
+      if (errors.length < 5) errors.push(`라인 ${i+1}: 시각 파싱 실패 "${cols[0]}"`);
+      continue;
+    }
+    const off = tsResult.consumed;  // 1 or 2
+    const o = parseFloat(cols[off]);
+    const h = parseFloat(cols[off + 1]);
+    const l = parseFloat(cols[off + 2]);
+    const c = parseFloat(cols[off + 3]);
+    const v = cols[off + 4] ? parseFloat(cols[off + 4]) : 0;
+
+    if (isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) {
+      if (errors.length < 5) errors.push(`라인 ${i+1}: OHLC 파싱 실패`);
+      continue;
+    }
+    candles.push({ ts: tsResult.ts, o, h, l, c, v: isNaN(v) ? 0 : v });
+
+    // 첫 성공 라인으로 포맷 힌트
+    if (!formatHint) {
+      formatHint = off === 2
+        ? 'MT4/HistData (날짜+시간 분리)'
+        : (cols.length >= 7 ? 'Dukascopy 또는 Generic' : 'Generic OHLCV');
+    }
+  }
+  return { candles, errors, formatHint };
+}
+
+// ── CSV 업로드 처리 (대용량 청크 분할 전송) ─────────────────
 async function handleCsvUpload(ev) {
   const file = ev.target.files[0];
   if (!file) return;
-  setDataStatus('<i class="fas fa-spinner fa-spin"></i> CSV 파싱 중...', 'warn');
+  const fileMB = (file.size / 1024 / 1024).toFixed(1);
+  setDataStatus(`<i class="fas fa-spinner fa-spin"></i> CSV 읽는 중… (${fileMB}MB)`, 'warn');
+
   try {
     const text = await file.text();
-    const lines = text.trim().split(/\r?\n/);
-    const candles = [];
-    let header = null;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      // 첫 줄이 텍스트 헤더면 건너뜀
-      if (i === 0 && /[a-zA-Z]/.test(line.replace(/[,;:\-T\s]/g,''))) {
-        header = line.toLowerCase();
-        continue;
-      }
-      // 구분자 자동 감지
-      const sep = line.includes('\t') ? '\t' : (line.includes(';') ? ';' : ',');
-      const cols = line.split(sep);
-      if (cols.length < 5) continue;
-      // 시각, O, H, L, C, [V]
-      // 시각은 epoch sec 또는 'YYYY-MM-DD HH:mm:ss' 또는 'YYYY.MM.DD HH:mm' 지원
-      let ts;
-      const rawTs = cols[0].trim().replace(/"/g,'');
-      if (/^\d{10,}$/.test(rawTs)) {
-        ts = parseInt(rawTs); if (ts > 1e12) ts = Math.floor(ts/1000); // ms→sec
-      } else {
-        // 'YYYY.MM.DD HH:mm' → 'YYYY-MM-DD HH:mm'
-        const norm = rawTs.replace(/\./g,'-').replace(' ','T');
-        ts = Math.floor(Date.parse(norm + (norm.includes('T') ? '' : 'T00:00:00') + 'Z') / 1000);
-      }
-      const o = parseFloat(cols[1]), h = parseFloat(cols[2]), l = parseFloat(cols[3]), c = parseFloat(cols[4]);
-      const v = cols[5] ? parseFloat(cols[5]) : 0;
-      if (!isNaN(ts) && !isNaN(o)) candles.push({ ts, o, h, l, c, v });
-    }
-    if (!candles.length) { setDataStatus('❌ CSV 파싱 실패 — 유효한 캔들 없음', 'err'); return; }
+    setDataStatus(`<i class="fas fa-spinner fa-spin"></i> CSV 파싱 중… (${(text.length/1024/1024).toFixed(1)}MB)`, 'warn');
 
+    // 마이크로태스크로 양보 (UI freeze 방지)
+    await new Promise(r => setTimeout(r, 10));
+    const { candles, errors, formatHint } = parseCsvText(text);
+
+    if (!candles.length) {
+      const msg = errors.length
+        ? `❌ CSV 파싱 실패<br><small style="opacity:.7">${errors.slice(0,3).join('<br>')}</small>`
+        : '❌ CSV 파싱 실패 — 유효한 캔들 없음';
+      setDataStatus(msg, 'err');
+      return;
+    }
+
+    const firstDate = new Date(candles[0].ts * 1000).toISOString().slice(0,10);
+    const lastDate  = new Date(candles[candles.length-1].ts * 1000).toISOString().slice(0,10);
+    console.log(`[CSV] 포맷: ${formatHint} · ${candles.length}봉 (${firstDate} ~ ${lastDate})`);
+    if (errors.length) console.warn(`[CSV] 스킵된 라인 ${errors.length}건`, errors.slice(0,5));
+
+    // ── 청크 분할 업로드 (1만봉씩) ────────────────────────────
     const tf = document.getElementById('paramTimeframe').value;
-    const res = await fetch('/api/candles/upload', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ symbol:'XAUUSD', timeframe: tf, candles })
-    });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'upload 실패');
+    const CHUNK = 10000;
+    const total = candles.length;
+    let uploaded = 0;
+    const startedAt = Date.now();
+
+    for (let i = 0; i < total; i += CHUNK) {
+      const part = candles.slice(i, i + CHUNK);
+      const pct = Math.round(((i + part.length) / total) * 100);
+      const elapsed = (Date.now() - startedAt) / 1000;
+      const remain = elapsed > 0 ? Math.max(0, elapsed / (i + part.length) * (total - i - part.length)) : 0;
+
+      setDataStatus(
+        `<div style="display:flex;flex-direction:column;gap:6px">
+          <div><i class="fas fa-spinner fa-spin"></i> 업로드 중 · ${(uploaded+part.length).toLocaleString()}/${total.toLocaleString()}봉 (${pct}%)</div>
+          <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">
+            <div style="background:linear-gradient(90deg,#10b981,#059669);height:100%;width:${pct}%;transition:width .3s"></div>
+          </div>
+          <div style="font-size:11px;opacity:.7">포맷: ${formatHint} · 남은 시간 ${remain<1?'곧':fmtETA(remain)}</div>
+        </div>`,
+        'warn'
+      );
+
+      const res = await fetch('/api/candles/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: 'XAUUSD', timeframe: tf, candles: part })
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'upload 실패');
+      uploaded += (json.inserted || part.length);
+    }
+
     await checkExistingData();
-    setDataStatus(`✅ CSV ${json.inserted.toLocaleString()}봉 업로드 완료`, 'ok');
+    setDataStatus(
+      `✅ CSV 업로드 완료 · ${uploaded.toLocaleString()}봉 (${firstDate} ~ ${lastDate})` +
+      (errors.length ? ` · 스킵 ${errors.length}건` : ''),
+      'ok'
+    );
   } catch (e) {
     setDataStatus('❌ ' + (e.message || e), 'err');
+  } finally {
+    // input 초기화 (같은 파일 다시 선택 가능하게)
+    ev.target.value = '';
   }
 }
 
