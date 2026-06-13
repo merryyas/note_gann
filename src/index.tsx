@@ -420,45 +420,46 @@ app.post('/api/admin/reset', async (c) => {
 
 // ─── Ticker Proxy  GET /api/ticker ────────────────────────────
 // 전략:
-//   1차: Stooq CSV (헤더 행 없음 — lines[0]이 데이터)
+//   1차: Yahoo Finance (안정적, 무료, 키 불필요)
 //   2차: open.er-api.com (환율 fallback)
-//   3차: 하드코딩 fallback (전날 종가)
 const TICKER_SYMBOLS: { sym: string; label: string; type: 'index'|'commodity'|'fx' }[] = [
-  { sym: '^spx',   label: 'S&P 500',  type: 'index'     },
-  { sym: '^ndx',   label: '나스닥',    type: 'index'     },
-  { sym: '^dji',   label: '다우',      type: 'index'     },
-  { sym: 'gc.f',   label: '금',        type: 'commodity' },
-  { sym: 'cl.f',   label: 'WTI',       type: 'commodity' },
-  { sym: 'usdkrw', label: '원/달러',   type: 'fx'        },
+  { sym: '^GSPC',  label: 'S&P 500',  type: 'index'     },
+  { sym: '^NDX',   label: '나스닥',    type: 'index'     },
+  { sym: '^DJI',   label: '다우',      type: 'index'     },
+  { sym: 'GC=F',   label: '금',        type: 'commodity' },
+  { sym: 'CL=F',   label: 'WTI',       type: 'commodity' },
+  { sym: 'KRW=X',  label: '원/달러',   type: 'fx'        },
 ]
 
-// Stooq에서 단일 심볼 가져오기
-async function fetchStooq(sym: string): Promise<{ price: number; open: number } | null> {
+// Yahoo Finance v8 chart API에서 단일 심볼 가져오기
+// 반환: { price, prevClose } — 변화율은 전일 종가 기준으로 계산
+async function fetchYahoo(sym: string): Promise<{ price: number; prevClose: number } | null> {
   try {
-    const encoded = encodeURIComponent(sym)
-    const url = `https://stooq.com/q/l/?s=${encoded}&f=sd2t2ohlcv&e=csv`
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=2d`
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        'Accept': 'text/csv,text/plain,*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://stooq.com/',
+        'Accept': 'application/json,text/plain,*/*',
       },
-      // CF Workers에서 자동으로 붙는 CF 헤더 제거 시도
-      cf: { cacheEverything: false } as never,
     })
     if (!res.ok) return null
-    const text = await res.text()
-    // Stooq CSV: 헤더 행 없음. 첫 줄이 바로 데이터
-    // 형식: SYMBOL,DATE,TIME,OPEN,HIGH,LOW,CLOSE,VOLUME
-    const line = text.trim().split('\n')[0]
-    if (!line || line.startsWith('Symbol')) return null  // 혹시 헤더가 있으면 skip
-    const cols = line.split(',')
-    if (cols.length < 7) return null
-    const price = parseFloat(cols[6])
-    const open  = parseFloat(cols[3])
-    if (isNaN(price) || isNaN(open)) return null
-    return { price, open }
+    const json = await res.json() as {
+      chart?: {
+        result?: Array<{
+          meta?: {
+            regularMarketPrice?: number
+            chartPreviousClose?: number
+            previousClose?: number
+          }
+        }>
+      }
+    }
+    const meta = json?.chart?.result?.[0]?.meta
+    if (!meta) return null
+    const price = meta.regularMarketPrice
+    const prevClose = meta.chartPreviousClose ?? meta.previousClose
+    if (typeof price !== 'number' || typeof prevClose !== 'number') return null
+    return { price, prevClose }
   } catch {
     return null
   }
@@ -466,26 +467,25 @@ async function fetchStooq(sym: string): Promise<{ price: number; open: number } 
 
 app.get('/api/ticker', async (c) => {
   try {
-    // 1차: Stooq 병렬 요청
+    // 1차: Yahoo Finance 병렬 요청
     const results = await Promise.all(
       TICKER_SYMBOLS.map(async ({ sym, label, type }) => {
-        const data = await fetchStooq(sym)
+        const data = await fetchYahoo(sym)
         if (!data) return null
-        const { price, open } = data
-        const change    = price - open
-        const changePct = open > 0 ? (change / open) * 100 : 0
+        const { price, prevClose } = data
+        const change    = price - prevClose
+        const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0
         return { sym, label, type, price, change, changePct }
       })
     )
 
-    // 2차 fallback: 환율(usdkrw)만 open.er-api.com으로 대체
+    // 2차 fallback: 환율(KRW=X)만 open.er-api.com으로 대체
     const finalResults = await Promise.all(
       results.map(async (item, idx) => {
         if (item !== null) return item
         const { sym, label, type } = TICKER_SYMBOLS[idx]
 
-        // 환율 fallback
-        if (sym === 'usdkrw') {
+        if (sym === 'KRW=X') {
           try {
             const res = await fetch('https://open.er-api.com/v6/latest/USD', {
               headers: { 'Accept': 'application/json' }
@@ -511,26 +511,16 @@ app.get('/api/ticker', async (c) => {
 })
 
 // ─── Ticker Debug  GET /api/ticker-debug ──────────────────────
-// Worker에서 Stooq가 실제로 무엇을 반환하는지 확인용
 app.get('/api/ticker-debug', async (c) => {
   const results: Record<string, unknown> = {}
-  for (const { sym } of TICKER_SYMBOLS.slice(0, 2)) {
+  for (const { sym } of TICKER_SYMBOLS) {
     try {
-      const url = `https://stooq.com/q/l/?s=${encodeURIComponent(sym)}&f=sd2t2ohlcv&e=csv`
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/csv,text/plain,*/*',
-          'Referer': 'https://stooq.com/',
-        }
-      })
-      const text = await res.text()
-      results[sym] = { status: res.status, bodyPreview: text.slice(0, 200), len: text.length }
+      const data = await fetchYahoo(sym)
+      results[sym] = data ? { ok: true, ...data } : { ok: false, error: 'no data' }
     } catch(e) {
       results[sym] = { error: String(e) }
     }
   }
-  // open.er-api 도 테스트
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD')
     const json = await res.json() as { rates?: Record<string, number> }
