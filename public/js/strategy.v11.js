@@ -469,10 +469,33 @@ async function handleCsvUpload(ev) {
     const { candles, errors, formatHint } = parseCsvText(text);
 
     if (!candles.length) {
-      const msg = errors.length
-        ? `❌ CSV 파싱 실패<br><small style="opacity:.7">${errors.slice(0,3).join('<br>')}</small>`
-        : '❌ CSV 파싱 실패 — 유효한 캔들 없음';
-      setDataStatus(msg, 'err');
+      // 빈 파일 / 헤더만 / 데이터 0줄 판별
+      const totalLines = text.trim().split(/\r?\n/).filter(l => l.trim()).length;
+      const fileName = (file.name || '').toLowerCase();
+      const isWeekend = /\b(2023-01-01|2024-01-01|2025-01-01|2026-01-01)\b/.test(fileName)
+                       || /sun|sat/i.test(fileName);
+
+      let hint = '';
+      if (totalLines <= 1) {
+        // 헤더만 또는 완전 빈 파일
+        hint = `<div style="margin-top:6px;font-size:11px;line-height:1.5;opacity:.85;text-align:left;">
+          <strong>📂 파일에 데이터가 0줄입니다</strong> (헤더만 ${totalLines}줄)<br>
+          ${isWeekend ? '🗓️ <strong style="color:#fbbf24">파일명에 1월 1일(휴장일)이 포함</strong>되어 있습니다. ' : ''}
+          가능한 원인:<br>
+          • 단일 날짜만 선택 → 주말/공휴일이면 XAU 휴장으로 0봉<br>
+          • Dukascopy 일일 다운로드 한도 초과<br>
+          • 다운로드 중 세션 끊김<br><br>
+          <strong style="color:#86efac;">해결:</strong><br>
+          ① Dukascopy에서 <strong>날짜 범위(From~To)</strong>로 다시 받기<br>
+          ② 또는 <a href="https://www.histdata.com/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/xauusd" target="_blank" style="color:#60a5fa;">HistData에서 받기</a> (회원가입 불필요)
+        </div>`;
+      } else if (errors.length) {
+        hint = `<div style="margin-top:6px;font-size:11px;line-height:1.5;opacity:.75;text-align:left;">
+          파싱 실패 라인 예시:<br>${errors.slice(0,3).map(e=>`• ${e}`).join('<br>')}<br>
+          <span style="color:#fbbf24;">→ 파일 형식이 지원 목록과 다를 수 있습니다. 사이드바 [무료 CSV 다운로드 사이트] 박스의 지원 포맷을 확인하세요.</span>
+        </div>`;
+      }
+      setDataStatus(`❌ CSV 파싱 실패 — 유효한 캔들 없음${hint}`, 'err');
       return;
     }
 
