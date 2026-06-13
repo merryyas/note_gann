@@ -150,6 +150,17 @@ function setDataStatus(msg, cls) {
   el.innerHTML = msg;
 }
 
+// 중단 컨트롤
+let _fetchAbort = false;
+function abortFetch() { _fetchAbort = true; }
+window.abortFetch = abortFetch;
+
+function fmtETA(sec) {
+  if (sec < 60) return `약 ${Math.ceil(sec)}초`;
+  const m = Math.floor(sec / 60), s = Math.ceil(sec % 60);
+  return s > 0 ? `약 ${m}분 ${s}초` : `약 ${m}분`;
+}
+
 async function fetchCandles() {
   const btn = document.getElementById('btnFetch');
   const src = document.getElementById('paramSource').value;
@@ -167,41 +178,148 @@ async function fetchCandles() {
     return;
   }
 
+  let apiKey = '';
   if (src === 'twelvedata') {
-    const apiKey = document.getElementById('paramApiKey').value.trim();
+    apiKey = document.getElementById('paramApiKey').value.trim();
     if (!apiKey) {
       setDataStatus('Twelve Data API 키를 입력하세요 (twelvedata.com 무료)', 'err');
       return;
     }
   }
 
+  // Stooq는 일봉(D1)만 지원 — 단일 호출이면 됨
+  if (src === 'stooq') {
+    btn.disabled = true;
+    _fetchAbort = false;
+    setDataStatus('<i class="fas fa-spinner fa-spin"></i> Stooq에서 데이터 받는 중…', 'warn');
+    try {
+      const res = await fetch('/api/candles/fetch', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ source: 'stooq', symbol: 'XAUUSD', timeframe: tf, from, to })
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'fetch 실패');
+      await checkExistingData();
+      setDataStatus(`✅ ${(json.inserted||0).toLocaleString()}봉 저장 · 로드 ${CANDLES.length.toLocaleString()}봉`, 'ok');
+    } catch (e) {
+      setDataStatus('❌ ' + (e.message || e), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // ── Twelve Data: 청크 분할 + 클라이언트 페이싱 ───────────────
   btn.disabled = true;
-  setDataStatus('<i class="fas fa-spinner fa-spin"></i> 데이터 받는 중... (최대 1~2분 소요)', 'warn');
+  _fetchAbort = false;
+  setDataStatus('<i class="fas fa-spinner fa-spin"></i> 청크 계획 수립 중…', 'warn');
 
   try {
-    const body = {
-      source: src,
-      symbol: 'XAUUSD',
-      timeframe: tf,
-      from, to,
-    };
-    if (src === 'twelvedata') body.apiKey = document.getElementById('paramApiKey').value.trim();
-
-    const res = await fetch('/api/candles/fetch', {
+    // 1) plan 호출
+    const planRes = await fetch('/api/candles/plan', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(body)
+      body: JSON.stringify({ symbol: 'XAUUSD', timeframe: tf, from, to, skipCached: true })
     });
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'fetch 실패');
+    const plan = await planRes.json();
+    if (!plan.ok) throw new Error(plan.error || 'plan 실패');
 
-    // 캐시에서 다시 로드
+    const chunks = plan.chunks || [];
+    if (!chunks.length) {
+      setDataStatus('✅ 이미 모든 구간이 캐시에 있습니다', 'ok');
+      await checkExistingData();
+      btn.disabled = false;
+      return;
+    }
+
+    // 2) 예상 시간 안내 (Twelve Data 분당 8회 제한 → 청크 사이 8초 대기)
+    const INTERVAL_MS = 8000;            // 청크 간 대기
+    const PER_CALL_SEC = 12;             // 호출 자체 + 대기 = 약 12초 예상
+    const etaSec = chunks.length * PER_CALL_SEC;
+
+    if (chunks.length > 5) {
+      const ok = confirm(
+        `⚠️ ${chunks.length}개 청크로 분할 다운로드합니다.\n` +
+        `Twelve Data 무료 플랜(분당 8회) 제한으로 청크 사이 8초 대기합니다.\n` +
+        `예상 소요 시간: ${fmtETA(etaSec)}\n\n` +
+        `진행하시겠습니까?\n(중간에 [중단] 버튼으로 멈춰도 받은 데이터는 보존됩니다)`
+      );
+      if (!ok) { setDataStatus('취소되었습니다', 'warn'); btn.disabled = false; return; }
+    }
+
+    // 3) 청크별 반복 호출
+    let totalInserted = 0;
+    let failed = 0;
+    const startedAt = Date.now();
+
+    for (let i = 0; i < chunks.length; i++) {
+      if (_fetchAbort) {
+        setDataStatus(`⏸️ 중단됨 · ${i}/${chunks.length}청크 완료 · 누적 ${totalInserted.toLocaleString()}봉`, 'warn');
+        break;
+      }
+
+      const ck = chunks[i];
+      const elapsed = (Date.now() - startedAt) / 1000;
+      const remain = Math.max(0, (chunks.length - i) * PER_CALL_SEC - 0);
+      const pct = Math.round((i / chunks.length) * 100);
+      setDataStatus(
+        `<div style="display:flex;flex-direction:column;gap:6px">
+          <div><i class="fas fa-spinner fa-spin"></i> ${i+1}/${chunks.length} 청크 다운로드 중 · 남은 시간 ${fmtETA(remain)}</div>
+          <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">
+            <div style="background:linear-gradient(90deg,#fbbf24,#f59e0b);height:100%;width:${pct}%;transition:width .3s"></div>
+          </div>
+          <div style="font-size:11px;opacity:.7">누적 ${totalInserted.toLocaleString()}봉 · 실패 ${failed} · <button onclick="abortFetch()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fca5a5;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">중단</button></div>
+        </div>`,
+        'warn'
+      );
+
+      try {
+        const res = await fetch('/api/candles/fetch', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            source: 'twelvedata',
+            apiKey,
+            symbol: 'XAUUSD',
+            timeframe: tf,
+            from: ck.from,
+            to: ck.to
+          })
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          failed++;
+          console.warn(`청크 ${i+1} 실패:`, json.error);
+        } else {
+          totalInserted += (json.inserted || 0);
+        }
+      } catch (e) {
+        failed++;
+        console.warn(`청크 ${i+1} 네트워크 실패:`, e);
+      }
+
+      // 마지막 청크가 아니면 대기 (분당 8회 제한)
+      if (i < chunks.length - 1 && !_fetchAbort) {
+        await new Promise(r => setTimeout(r, INTERVAL_MS));
+      }
+    }
+
+    // 4) 캐시에서 다시 로드
     await checkExistingData();
-    setDataStatus(`✅ ${json.inserted.toLocaleString()}봉 저장됨 · 로드 ${CANDLES.length.toLocaleString()}봉`, 'ok');
+    if (!_fetchAbort) {
+      const cnt = CANDLES.length.toLocaleString();
+      if (failed > 0) {
+        setDataStatus(`⚠️ 완료 · ${totalInserted.toLocaleString()}봉 저장 · 실패 ${failed}청크 · 로드 ${cnt}봉`, 'warn');
+      } else {
+        setDataStatus(`✅ 완료 · ${totalInserted.toLocaleString()}봉 저장 · 로드 ${cnt}봉`, 'ok');
+      }
+    }
   } catch (e) {
     setDataStatus('❌ ' + (e.message || e), 'err');
   } finally {
     btn.disabled = false;
+    _fetchAbort = false;
   }
 }
 

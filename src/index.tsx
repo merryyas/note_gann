@@ -547,8 +547,8 @@ app.get('/api/ticker-debug', async (c) => {
 
 type Candle = { ts: number; o: number; h: number; l: number; c: number; v?: number }
 
-// ─── Twelve Data 1분봉 fetcher ───────────────────────────────
-// XAU/USD 1분봉, 한 번에 5000봉까지 (무료 플랜 800req/일)
+// ─── Twelve Data 1분봉 fetcher (429 자동 재시도) ──────────────
+// XAU/USD 1분봉, 한 번에 5000봉까지 (무료 플랜: 분당 8회, 일일 800회)
 async function fetchTwelveData(
   apiKey: string,
   symbol: string,         // 'XAU/USD'
@@ -566,23 +566,50 @@ async function fetchTwelveData(
   url.searchParams.set('format', 'JSON')
   url.searchParams.set('timezone', 'UTC')
   url.searchParams.set('apikey', apiKey)
-  const res = await fetch(url.toString())
-  if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`)
-  const json = await res.json() as {
-    status?: string; code?: number; message?: string;
-    values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume?: string }>
+
+  // 최대 3회 재시도 (429 발생 시 지수 백오프)
+  let attempt = 0
+  let lastErr: unknown = null
+  while (attempt < 3) {
+    try {
+      const res = await fetch(url.toString())
+      if (res.status === 429) {
+        const wait = 9000 + attempt * 6000   // 9s → 15s → 21s
+        await new Promise(r => setTimeout(r, wait))
+        attempt++
+        continue
+      }
+      if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`)
+      const json = await res.json() as {
+        status?: string; code?: number; message?: string;
+        values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume?: string }>
+      }
+      // status:error 인 경우에도 code 429 → 재시도
+      if (json.status === 'error') {
+        if (json.code === 429 && attempt < 2) {
+          await new Promise(r => setTimeout(r, 9000 + attempt * 6000))
+          attempt++
+          continue
+        }
+        throw new Error(`TwelveData: ${json.message || 'unknown error'} (code ${json.code || '?'})`)
+      }
+      if (!Array.isArray(json.values)) return []
+      return json.values.map(v => ({
+        // 'YYYY-MM-DD HH:mm:ss' (UTC) → epoch seconds
+        ts: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
+        o: parseFloat(v.open),
+        h: parseFloat(v.high),
+        l: parseFloat(v.low),
+        c: parseFloat(v.close),
+        v: v.volume ? parseFloat(v.volume) : 0
+      })).filter(c => !isNaN(c.o) && !isNaN(c.c)).sort((a, b) => a.ts - b.ts)
+    } catch (e) {
+      lastErr = e
+      attempt++
+      if (attempt < 3) await new Promise(r => setTimeout(r, 5000))
+    }
   }
-  if (json.status === 'error') throw new Error(`TwelveData: ${json.message || 'unknown error'}`)
-  if (!Array.isArray(json.values)) return []
-  return json.values.map(v => ({
-    // 'YYYY-MM-DD HH:mm:ss' (UTC) → epoch seconds
-    ts: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
-    o: parseFloat(v.open),
-    h: parseFloat(v.high),
-    l: parseFloat(v.low),
-    c: parseFloat(v.close),
-    v: v.volume ? parseFloat(v.volume) : 0
-  })).filter(c => !isNaN(c.o) && !isNaN(c.c)).sort((a, b) => a.ts - b.ts)
+  throw lastErr instanceof Error ? lastErr : new Error('TwelveData fetch failed')
 }
 
 // ─── Stooq XAUUSD 시간봉/일봉 (API 키 불필요, 백업용) ─────────
@@ -644,17 +671,125 @@ app.get('/api/candles', async (c) => {
   }
 })
 
-// ─── 캔들 데이터 fetch & 캐싱 ───────────────────────────────
+// ─── DB 저장 헬퍼 ───────────────────────────────
+async function saveCandlesToDb(
+  db: D1Database, symbol: string, timeframe: string,
+  candles: Candle[], source: string
+): Promise<number> {
+  if (!candles.length) return 0
+  // 중복 제거
+  const map = new Map<number, Candle>()
+  candles.forEach(k => map.set(k.ts, k))
+  const unique = Array.from(map.values()).sort((a, b) => a.ts - b.ts)
+
+  let inserted = 0
+  // D1 SQL 변수 한도 ≤ 100 → 9컬럼 × 10행 = 90개 (안전)
+  const CHUNK = 10
+  // batch()로 묶어 일괄 실행 (트랜잭션 비용 절감)
+  for (let i = 0; i < unique.length; i += 500) {
+    const big = unique.slice(i, i + 500)
+    const stmts: D1PreparedStatement[] = []
+    for (let j = 0; j < big.length; j += CHUNK) {
+      const part = big.slice(j, j + CHUNK)
+      const placeholders = part.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
+      const values: (string | number)[] = []
+      part.forEach(k => {
+        values.push(symbol, timeframe, k.ts, k.o, k.h, k.l, k.c, k.v || 0, source)
+      })
+      stmts.push(db.prepare(`
+        INSERT OR REPLACE INTO candles
+          (symbol, timeframe, ts_utc, open, high, low, close, volume, source)
+        VALUES ${placeholders}
+      `).bind(...values))
+    }
+    await db.batch(stmts)
+    inserted += big.length
+  }
+  // meta 업데이트
+  const first = unique[0].ts, last = unique[unique.length - 1].ts
+  await db.prepare(`
+    INSERT INTO candle_meta (symbol, timeframe, from_ts, to_ts, count, last_fetch, source)
+    VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(symbol, timeframe) DO UPDATE SET
+      from_ts    = MIN(from_ts, excluded.from_ts),
+      to_ts      = MAX(to_ts,   excluded.to_ts),
+      count      = count + excluded.count,
+      last_fetch = excluded.last_fetch,
+      source     = excluded.source
+  `).bind(symbol, timeframe, first, last, inserted, Math.floor(Date.now() / 1000), source).run()
+  return inserted
+}
+
+// ─── 캔들 데이터 fetch 계획 (청크 분할) ───────────────────────
+// POST /api/candles/plan
+// body: { timeframe, from, to } → 청크 배열 반환
+app.post('/api/candles/plan', async (c) => {
+  try {
+    const body = await c.req.json() as {
+      timeframe?: string; from: number; to: number;
+      symbol?: string;
+      skipCached?: boolean;
+    }
+    const timeframe = (body.timeframe || 'M1').toUpperCase()
+    const symbol = (body.symbol || 'XAUUSD').toUpperCase()
+    const from = body.from, to = body.to
+    if (!from || !to || to <= from) return c.json({ ok:false, error:'invalid range' }, 400)
+
+    // 청크 크기 (초 단위) — Twelve Data 5000봉 제한 기준
+    const chunkSec: Record<string, number> = {
+      M1:  3 * 86400,     // 3일 (≈ 4320봉)
+      M5: 14 * 86400,     // 14일
+      M15: 40 * 86400,
+      H1: 200 * 86400,
+      D1: 5000 * 86400
+    }
+    const step = chunkSec[timeframe] || 3 * 86400
+
+    // 캐시된 구간 확인 (skipCached=true 인 경우)
+    let cached: Array<{ from:number; to:number }> = []
+    if (body.skipCached) {
+      const rows = await c.env.DB.prepare(`
+        SELECT MIN(ts_utc) as mn, MAX(ts_utc) as mx FROM candles
+        WHERE symbol=? AND timeframe=? AND ts_utc>=? AND ts_utc<=?
+      `).bind(symbol, timeframe, from, to).first<{mn:number; mx:number}>()
+      if (rows && rows.mn && rows.mx) {
+        cached = [{ from: rows.mn, to: rows.mx }]
+      }
+    }
+
+    const chunks: Array<{ from:number; to:number; startISO:string; endISO:string }> = []
+    let cursor = from
+    while (cursor < to) {
+      const chunkTo = Math.min(cursor + step, to)
+      // 캐시된 구간과 완전히 겹치면 skip
+      const fullyCovered = cached.some(c => cursor >= c.from && chunkTo <= c.to)
+      if (!fullyCovered) {
+        chunks.push({
+          from: cursor,
+          to: chunkTo,
+          startISO: new Date(cursor * 1000).toISOString().slice(0, 19).replace('T', ' '),
+          endISO:   new Date(chunkTo * 1000).toISOString().slice(0, 19).replace('T', ' ')
+        })
+      }
+      cursor = chunkTo
+    }
+    return c.json({ ok:true, chunks, total: chunks.length })
+  } catch (e) {
+    return c.json({ ok:false, error: String(e) }, 500)
+  }
+})
+
+// ─── 캔들 데이터 fetch (1청크만 처리) ─────────────────────────
 // POST /api/candles/fetch
-// body: { source:'twelvedata'|'stooq', apiKey?, symbol, timeframe, from, to }
+// body: { source, apiKey?, symbol, timeframe, from, to } → 단일 청크 fetch
 app.post('/api/candles/fetch', async (c) => {
   try {
     const body = await c.req.json() as {
       source: 'twelvedata' | 'stooq'
       apiKey?: string
-      symbol?: string       // 'XAUUSD'
-      timeframe?: string    // 'M1','M5','H1','D1'
-      from: number          // epoch seconds (UTC)
+      symbol?: string
+      timeframe?: string
+      from: number
       to: number
     }
     const symbol    = (body.symbol || 'XAUUSD').toUpperCase()
@@ -665,32 +800,17 @@ app.post('/api/candles/fetch', async (c) => {
     }
 
     let candles: Candle[] = []
-    let source = body.source
+    const source = body.source
 
     if (body.source === 'twelvedata') {
-      if (!body.apiKey) return c.json({ ok: false, error: 'apiKey required for twelvedata' }, 400)
-      const tfMap: Record<string, string> = { M1: '1min', M5: '5min', M15: '15min', H1: '1h', D1: '1day' }
+      if (!body.apiKey) return c.json({ ok: false, error: 'apiKey required' }, 400)
+      const tfMap: Record<string, string> = { M1:'1min', M5:'5min', M15:'15min', H1:'1h', D1:'1day' }
       const interval = tfMap[timeframe] || '1min'
-      // Twelve Data는 한 요청당 5000봉 제한 → 청크 분할
-      // M1: 5000분 = 약 3.47일치
-      const chunkSec: Record<string, number> = { M1: 3 * 86400, M5: 14 * 86400, M15: 40 * 86400, H1: 200 * 86400, D1: 5000 * 86400 }
-      const step = chunkSec[timeframe] || 3 * 86400
-      let cursor = from
-      let chunks = 0
-      const maxChunks = 50  // 무료 플랜 보호 (1분당 8회)
-      while (cursor < to && chunks < maxChunks) {
-        const chunkTo = Math.min(cursor + step, to)
-        const startISO = new Date(cursor * 1000).toISOString().slice(0, 19).replace('T', ' ')
-        const endISO   = new Date(chunkTo * 1000).toISOString().slice(0, 19).replace('T', ' ')
-        const batch = await fetchTwelveData(body.apiKey, 'XAU/USD', interval, startISO, endISO, 5000)
-        candles.push(...batch)
-        cursor = chunkTo
-        chunks++
-        // rate limit 보호 (1분당 8회 → 약 8초 간격)
-        if (chunks < maxChunks && cursor < to) await new Promise(r => setTimeout(r, 250))
-      }
+      const startISO = new Date(from * 1000).toISOString().slice(0, 19).replace('T', ' ')
+      const endISO   = new Date(to * 1000).toISOString().slice(0, 19).replace('T', ' ')
+      // 단일 청크만 — 클라이언트가 반복 호출 + 대기
+      candles = await fetchTwelveData(body.apiKey, 'XAU/USD', interval, startISO, endISO, 5000)
     } else if (body.source === 'stooq') {
-      // Stooq는 일봉만 안정적
       const sym = symbol === 'XAUUSD' ? 'xauusd' : symbol.toLowerCase()
       const all = await fetchStooqOHLC(sym, 'd')
       candles = all.filter(k => k.ts >= from && k.ts <= to)
@@ -702,43 +822,14 @@ app.post('/api/candles/fetch', async (c) => {
       return c.json({ ok: true, inserted: 0, message: 'no candles returned', source })
     }
 
-    // 중복 제거
-    const map = new Map<number, Candle>()
-    candles.forEach(k => map.set(k.ts, k))
-    const unique = Array.from(map.values()).sort((a, b) => a.ts - b.ts)
-
-    // D1에 BATCH INSERT (1000개씩 청크)
-    let inserted = 0
-    const CHUNK = 80  // D1 statement parameter limit (~100)
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const part = unique.slice(i, i + CHUNK)
-      const placeholders = part.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
-      const values: (string | number)[] = []
-      part.forEach(k => {
-        values.push(symbol, timeframe, k.ts, k.o, k.h, k.l, k.c, k.v || 0, source)
-      })
-      await c.env.DB.prepare(`
-        INSERT OR REPLACE INTO candles
-          (symbol, timeframe, ts_utc, open, high, low, close, volume, source)
-        VALUES ${placeholders}
-      `).bind(...values).run()
-      inserted += part.length
-    }
-
-    // meta 업데이트
-    const first = unique[0].ts, last = unique[unique.length - 1].ts
-    await c.env.DB.prepare(`
-      INSERT INTO candle_meta (symbol, timeframe, from_ts, to_ts, count, last_fetch, source)
-      VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(symbol, timeframe) DO UPDATE SET
-        from_ts    = MIN(from_ts, excluded.from_ts),
-        to_ts      = MAX(to_ts,   excluded.to_ts),
-        count      = count + excluded.count,
-        last_fetch = excluded.last_fetch,
-        source     = excluded.source
-    `).bind(symbol, timeframe, first, last, inserted, Math.floor(Date.now() / 1000), source).run()
-
-    return c.json({ ok: true, inserted, from: first, to: last, source })
+    const inserted = await saveCandlesToDb(c.env.DB, symbol, timeframe, candles, source)
+    return c.json({
+      ok: true,
+      inserted,
+      from: candles[0].ts,
+      to: candles[candles.length-1].ts,
+      source
+    })
   } catch (e) {
     return c.json({ ok: false, error: String(e) }, 500)
   }
@@ -758,34 +849,8 @@ app.post('/api/candles/upload', async (c) => {
     const all = (body.candles || []).filter(k => k.ts && !isNaN(k.o)).sort((a, b) => a.ts - b.ts)
     if (!all.length) return c.json({ ok: false, error: 'no candles' }, 400)
 
-    let inserted = 0
-    const CHUNK = 80
-    for (let i = 0; i < all.length; i += CHUNK) {
-      const part = all.slice(i, i + CHUNK)
-      const placeholders = part.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
-      const values: (string | number)[] = []
-      part.forEach(k => {
-        values.push(symbol, timeframe, k.ts, k.o, k.h, k.l, k.c, k.v || 0, 'upload')
-      })
-      await c.env.DB.prepare(`
-        INSERT OR REPLACE INTO candles
-          (symbol, timeframe, ts_utc, open, high, low, close, volume, source)
-        VALUES ${placeholders}
-      `).bind(...values).run()
-      inserted += part.length
-    }
+    const inserted = await saveCandlesToDb(c.env.DB, symbol, timeframe, all, 'upload')
     const first = all[0].ts, last = all[all.length - 1].ts
-    await c.env.DB.prepare(`
-      INSERT INTO candle_meta (symbol, timeframe, from_ts, to_ts, count, last_fetch, source)
-      VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(symbol, timeframe) DO UPDATE SET
-        from_ts    = MIN(from_ts, excluded.from_ts),
-        to_ts      = MAX(to_ts,   excluded.to_ts),
-        count      = count + excluded.count,
-        last_fetch = excluded.last_fetch,
-        source     = 'upload'
-    `).bind(symbol, timeframe, first, last, inserted, Math.floor(Date.now() / 1000), 'upload').run()
-
     return c.json({ ok: true, inserted, from: first, to: last })
   } catch (e) {
     return c.json({ ok: false, error: String(e) }, 500)
