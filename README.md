@@ -12,7 +12,7 @@
 | `/` or `/index.html` | 대시보드 (KPI, 차트, 히트맵) |
 | `/trades.html` | 전체 거래 내역 테이블 + 필터 |
 | `/analytics.html` | 고급 분석 |
-| `/strategy.html` | 전략 노트 |
+| `/strategy.html` | **EA 백테스트 시뮬레이터** (XAUUSD M1 차트 + 마틴게일 EA + CASE 비교) |
 | `/note.html` | 메모 |
 | `/admin.html` | 관리자 (파일 업로드 / 삭제) |
 
@@ -30,12 +30,40 @@
 | DELETE | `/tables/trades?batch_id=xxx` | 배치 일괄 삭제 |
 | GET | `/api/health` | 헬스체크 |
 
+## 캔들 데이터 API (전략 시뮬레이터용)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/candles?symbol=XAUUSD&tf=M1&from=...&to=...` | 캐시된 OHLC 캔들 조회 |
+| POST | `/api/candles/fetch` | 외부 API에서 캔들 가져와 D1에 캐싱 (Twelve Data / Stooq) |
+| POST | `/api/candles/upload` | CSV 파싱 결과를 직접 업로드 |
+| DELETE | `/api/candles?symbol=XAUUSD&tf=M1` | 캐시 삭제 |
+
+## EA 백테스트 시뮬레이터 (strategy.html)
+**AUTO LOGIC 3 EA를 1분봉 OHLC 차트 데이터로 재현**
+
+### 기능
+- 차트 데이터 소스: **Twelve Data** (분봉 가능, API 키 필요 / [twelvedata.com](https://twelvedata.com) 무료 가입) · **Stooq** (일봉, 무료) · **CSV 직접 업로드**
+- 기간 선택: 3개월 / 올해(YTD) / 1년 / 2년 / 커스텀
+- 봉 단위: M1 / M5 / M15 / H1 / D1
+- 브로커 타임존 보정 → 자동 **KST 변환**
+- EA 설정값: [1] 거래방향, [2] 시드/시작랏, [3] 익절 포인트, [4] 마틴게일(배수/간격/최대주문), [5] 통합TP/SL/쿨타임
+- **추가 안전장치** (EA 외부): 일일 최대 손실 · 시드 배증 시 랏 자동 증가 (고정/배수 모드)
+- 진입 가능 시간(KST) + 요일 필터
+- **CASE 비교 시뮬레이션**: 기본(사용자) + CASE 1(보수) + CASE 2(중도) + CASE 3(공격/실제 EA) 4종 동시 백테스트
+- 시각화: 다중 잔고곡선 · 가격차트 + 진입/추가/청산 마커 · 바스켓 드릴다운
+
 ## 데이터 구조
 ### trades
 `id, ticket, symbol, type, lots, open_price, close_price, stop_loss, take_profit, profit, commission, swap, pips, open_time, close_time, platform, account_id, upload_batch, created_at`
 
 ### upload_history
 `id, filename, platform, account, period_start, period_end, total_trades, total_profit, upload_note, batch_id, initial_balance, created_at`
+
+### candles (XAUUSD OHLC 캐시)
+`symbol, timeframe, ts_utc, open, high, low, close, volume, source` (PK: symbol+timeframe+ts_utc)
+
+### candle_meta
+`symbol, timeframe, from_ts, to_ts, count, last_fetch, source` (PK: symbol+timeframe)
 
 ## Cloudflare 리소스
 - **D1 Database**: `tradinglog-production`

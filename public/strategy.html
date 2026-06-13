@@ -3,102 +3,95 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>전략 분석 — 334 TRADINGLOG</title>
+  <title>EA 백테스터 — 334 TRADINGLOG</title>
   <link rel="stylesheet" href="css/style.v11.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
   <style>
     /* ── NAV ── */
     .site-nav{position:fixed!important;top:0;left:0;right:0;z-index:1000;height:60px;display:flex!important;align-items:center!important;padding:0 40px;background:rgba(26,35,45,0.95);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,0.08);}
     .nav-menu-btn{width:42px;height:32px;border:1px solid rgba(255,255,255,0.3)!important;border-radius:5px;background:transparent!important;cursor:pointer;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:5px;flex-shrink:0;}
     .nav-menu-btn span{display:block!important;width:16px;height:1.5px;background:#fff!important;border-radius:2px;}
     .nav-logo{position:absolute!important;left:50%!important;transform:translateX(-50%)!important;display:flex!important;align-items:center!important;gap:4px;font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:2px;color:#fff!important;text-decoration:none!important;}
-    .nav-logo-dot{display:none;}.nav-logo-rocket{font-size:13px;color:#f5c400;flex-shrink:0;line-height:1;position:relative;top:-2px;}
+    .nav-logo-rocket{font-size:13px;color:#f5c400;flex-shrink:0;line-height:1;position:relative;top:-2px;}
     .nav-admin{margin-left:auto!important;font-size:10px;font-weight:600;letter-spacing:1.8px;text-transform:uppercase;color:#fff!important;border:1px solid rgba(255,255,255,0.3)!important;border-radius:5px;padding:7px 16px;background:transparent!important;text-decoration:none!important;}
     .nav-admin:hover{border-color:#f5c400!important;color:#f5c400!important;}
-    .nav-drawer{position:fixed!important;top:60px;left:0;right:0;background:linear-gradient(to bottom,rgba(26,35,45,0.7) 0%,rgba(26,35,45,0) 100%)!important;backdrop-filter:none;border-bottom:none;z-index:999;display:grid!important;grid-template-columns:repeat(2,1fr)!important;grid-template-rows:repeat(3,1fr)!important;padding:6px 20px 6px;transform:translateY(-110%)!important;transition:transform 0.28s cubic-bezier(0.4,0,0.2,1),visibility 0.28s;visibility:hidden!important;pointer-events:none!important;}
+    .nav-drawer{position:fixed!important;top:60px;left:0;right:0;background:linear-gradient(to bottom,rgba(26,35,45,0.7) 0%,rgba(26,35,45,0) 100%)!important;z-index:999;display:grid!important;grid-template-columns:repeat(2,1fr)!important;grid-template-rows:repeat(3,1fr)!important;padding:6px 20px 6px;transform:translateY(-110%)!important;transition:transform 0.28s cubic-bezier(0.4,0,0.2,1),visibility 0.28s;visibility:hidden!important;pointer-events:none!important;}
     .nav-drawer.open{transform:translateY(0)!important;visibility:visible!important;pointer-events:auto!important;}
     .nav-drawer a{display:flex!important;align-items:center;gap:10px;padding:10px 24px;align-self:center;font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.6)!important;text-decoration:none!important;transition:color 0.15s;}
-    .nav-drawer a:hover{color:#fff!important;}
-    .nav-drawer a.active{color:#f5c400!important;}
+    .nav-drawer a:hover{color:#fff!important;} .nav-drawer a.active{color:#f5c400!important;}
 
-    /* ── 레이아웃 ── */
-    .sim-layout {
+    /* ── 메인 레이아웃 ── */
+    .bt-layout {
       display: grid;
-      grid-template-columns: 300px 1fr;
-      gap: 24px;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
       align-items: start;
     }
 
-    /* ── 사이드바 ── */
-    .sim-sidebar {
+    /* ─── 사이드바 ─── */
+    .bt-sidebar {
       position: sticky;
       top: 80px;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      overflow: hidden;
     }
-    .sidebar-header {
-      padding: 16px 20px;
+    .bt-sidebar::-webkit-scrollbar { width: 4px; }
+    .bt-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    .sb-head {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg-card);
+      padding: 14px 18px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 10px;
     }
-    .sidebar-header-icon {
-      width: 32px; height: 32px;
-      border-radius: 8px;
+    .sb-head-icon {
+      width: 30px; height: 30px;
+      border-radius: 7px;
       background: rgba(245,196,0,0.12);
       color: #f5c400;
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px;
-      flex-shrink: 0;
+      font-size: 13px; flex-shrink: 0;
     }
-    .sidebar-header-title {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
+    .sb-head-title {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 1.5px; text-transform: uppercase;
       color: var(--text-primary);
     }
-    .sidebar-section {
-      padding: 14px 20px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
+    .sb-section {
+      padding: 13px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
     }
-    .sidebar-section:last-child { border-bottom: none; }
-    .sidebar-section-title {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 2px;
-      text-transform: uppercase;
+    .sb-section:last-child { border-bottom: none; }
+    .sb-section-title {
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 2px; text-transform: uppercase;
       color: var(--text-muted);
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      margin-bottom: 11px;
+      display: flex; align-items: center; gap: 6px;
     }
-    .sidebar-section-title i { color: #f5c400; font-size: 10px; }
+    .sb-section-title i { color: #f5c400; font-size: 10px; }
 
-    .param-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-      gap: 8px;
+    /* 파라미터 행 */
+    .pr { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; gap:8px; }
+    .pr:last-child { margin-bottom:0; }
+    .pr-label {
+      font-size: 11px; color: var(--text-secondary);
+      flex-shrink:0; max-width:150px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .param-row:last-child { margin-bottom: 0; }
-    .param-label {
-      font-size: 11px;
-      color: var(--text-secondary);
-      flex-shrink: 0;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 130px;
-    }
-    .param-input {
+    .pr-label small { display:block; font-size:9px; color:var(--text-muted); letter-spacing:0.3px; }
+    .pr-input {
       background: rgba(255,255,255,0.05);
       border: 1px solid rgba(255,255,255,0.1);
       border-radius: 6px;
@@ -106,394 +99,416 @@
       font-size: 12px;
       font-family: var(--font-d);
       padding: 5px 8px;
-      width: 90px;
+      width: 96px;
       text-align: right;
       transition: border-color 0.15s;
       flex-shrink: 0;
     }
-    .param-input:focus { outline: none; border-color: rgba(245,196,0,0.5); }
-    .param-input.full { width: 100%; text-align: left; font-family: inherit; font-size: 11px; margin-top: 6px; }
-    .param-toggle {
-      display: flex;
-      gap: 0;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-    .param-toggle button {
-      background: transparent;
-      border: none;
-      color: rgba(255,255,255,0.4);
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      padding: 5px 10px;
-      cursor: pointer;
-      transition: all 0.15s;
-      flex: 1;
-    }
-    .param-toggle button.on {
-      background: rgba(245,196,0,0.2);
-      color: #f5c400;
-    }
-    .session-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin-bottom: 8px;
-    }
-    .session-row input[type="time"] {
+    .pr-input:focus { outline:none; border-color: rgba(245,196,0,0.5); }
+    .pr-input.wide { width: 130px; text-align:left; font-family:inherit; font-size:11px; }
+    .pr-select {
       background: rgba(255,255,255,0.05);
       border: 1px solid rgba(255,255,255,0.1);
       border-radius: 6px;
       color: var(--text-primary);
       font-size: 11px;
       padding: 5px 8px;
-      width: 100%;
+      width: 130px;
+      flex-shrink: 0;
       cursor: pointer;
     }
-    .session-row input[type="time"]:focus { outline: none; border-color: rgba(245,196,0,0.5); }
-    .session-label {
+    .pr-select:focus { outline:none; border-color: rgba(245,196,0,0.5); }
+    .pr-select option { background: #1e2d3a; }
+    .pr-toggle {
+      display:flex; gap:0;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; overflow:hidden; flex-shrink:0;
+    }
+    .pr-toggle button {
+      background: transparent; border: none;
+      color: rgba(255,255,255,0.4);
+      font-size: 10px; font-weight: 600; letter-spacing:0.5px;
+      padding: 5px 10px; cursor:pointer; transition: all 0.15s; flex:1;
+    }
+    .pr-toggle button.on { background: rgba(245,196,0,0.2); color: #f5c400; }
+
+    /* 파일 업로드 영역 */
+    .upload-zone {
+      border: 1.5px dashed rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 16px 14px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag { border-color: rgba(245,196,0,0.5); background: rgba(245,196,0,0.04); }
+    .upload-zone input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .upload-zone-icon { font-size: 22px; color: rgba(255,255,255,0.2); margin-bottom: 8px; }
+    .upload-zone-text { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+    .upload-zone-text strong { color: var(--text-secondary); }
+    .upload-info {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: rgba(61,214,140,0.07);
+      border: 1px solid rgba(61,214,140,0.2);
+      border-radius: 6px;
+      font-size: 10px;
+      color: #3dd68c;
+      display: none;
+    }
+    .upload-info.show { display: flex; align-items: center; gap: 6px; }
+    .upload-warn {
+      margin-top: 6px;
       font-size: 9px;
       color: var(--text-muted);
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      letter-spacing: 0.3px;
+      line-height: 1.5;
     }
-    .weekday-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 4px;
-      margin-top: 8px;
-    }
-    .wd-btn {
-      background: rgba(255,255,255,0.04);
+
+    /* 세션 */
+    .sess-row { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px; }
+    .sess-row input[type="time"] {
+      background: rgba(255,255,255,0.05);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 5px;
-      color: rgba(255,255,255,0.4);
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      padding: 5px 2px;
-      cursor: pointer;
-      text-align: center;
-      transition: all 0.15s;
+      border-radius: 6px; color: var(--text-primary);
+      font-size:11px; padding:5px 8px; width:100%;
     }
-    .wd-btn.on {
-      background: rgba(245,196,0,0.15);
-      border-color: rgba(245,196,0,0.3);
-      color: #f5c400;
+    .sess-row input:focus { outline:none; border-color:rgba(245,196,0,0.5); }
+    .sess-label {
+      font-size:9px; color:var(--text-muted);
+      letter-spacing:1px; text-transform:uppercase;
+      margin-bottom:4px;
+      display:flex; align-items:center; justify-content:space-between;
     }
+    .wd-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; margin-top:8px; }
+    .wd-btn {
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);
+      border-radius:5px; color:rgba(255,255,255,0.4);
+      font-size:9px; font-weight:700; letter-spacing:0.5px;
+      padding:5px 2px; cursor:pointer; text-align:center; transition:all 0.15s;
+    }
+    .wd-btn.on { background:rgba(245,196,0,0.15); border-color:rgba(245,196,0,0.3); color:#f5c400; }
 
-    /* 버튼들 */
+    /* 스윕 */
+    .sweep-inp {
+      background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+      border-radius:6px; color:var(--text-primary);
+      font-size:11px; padding:5px 8px; width:100%; margin-top:4px;
+    }
+    .sweep-inp:focus { outline:none; border-color:rgba(91,168,224,0.5); }
+    .sweep-hint { font-size:9px; color:var(--text-muted); letter-spacing:0.3px; margin-top:2px; }
+
+    /* 실행 버튼 */
     .btn-run {
-      width: 100%;
-      padding: 11px;
-      background: #f5c400;
-      color: #1a232d;
-      border: none;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+      width:100%; padding:12px;
+      background:#f5c400; color:#1a232d;
+      border:none; border-radius:8px;
+      font-size:12px; font-weight:700; letter-spacing:1.5px;
+      text-transform:uppercase; cursor:pointer; transition:all 0.15s;
+      display:flex; align-items:center; justify-content:center; gap:8px;
     }
-    .btn-run:hover { background: #ffe066; transform: translateY(-1px); }
-    .btn-run:active { transform: translateY(0); }
-    .btn-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-run:hover { background:#ffe066; transform:translateY(-1px); }
+    .btn-run:disabled { opacity:0.45; cursor:not-allowed; transform:none; }
     .btn-sweep {
-      width: 100%;
-      padding: 10px;
-      background: transparent;
-      color: #5ba8e0;
-      border: 1px solid rgba(91,168,224,0.4);
-      border-radius: 8px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 0.15s;
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+      width:100%; margin-top:8px; padding:10px;
+      background:transparent; color:#5ba8e0;
+      border:1px solid rgba(91,168,224,0.4);
+      border-radius:8px; font-size:11px; font-weight:600;
+      letter-spacing:1.2px; text-transform:uppercase;
+      cursor:pointer; transition:all 0.15s;
+      display:flex; align-items:center; justify-content:center; gap:8px;
     }
-    .btn-sweep:hover { background: rgba(91,168,224,0.08); }
-    .btn-sweep:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-sweep:hover { background:rgba(91,168,224,0.08); }
+    .btn-sweep:disabled { opacity:0.4; cursor:not-allowed; }
 
-    /* ── 메인 콘텐츠 ── */
-    .sim-main { min-width: 0; }
+    /* 진행바 */
+    .prog-wrap { height:3px; background:rgba(255,255,255,0.08); border-radius:2px; margin-top:8px; overflow:hidden; display:none; }
+    .prog-fill { height:100%; background:linear-gradient(90deg,#f5c400,#ffe066); border-radius:2px; transition:width 0.2s; }
+
+    /* ─── 메인 영역 ─── */
+    .bt-main { min-width:0; }
 
     /* 상태 배너 */
-    .sim-status {
-      padding: 14px 20px;
-      border-radius: var(--radius-md);
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 12px;
+    .bt-status {
+      padding:13px 18px; border-radius:var(--radius-md);
+      margin-bottom:18px;
+      display:flex; align-items:center; gap:12px; font-size:12px;
     }
-    .sim-status.idle    { background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--text-muted); }
-    .sim-status.running { background: rgba(245,196,0,0.08);  border: 1px solid rgba(245,196,0,0.25); color: #f5c400; }
-    .sim-status.done    { background: rgba(61,214,140,0.07); border: 1px solid rgba(61,214,140,0.2); color: #3dd68c; }
-    .sim-status.error   { background: rgba(240,96,96,0.07);  border: 1px solid rgba(240,96,96,0.2);  color: #f06060; }
-    .sim-status i { font-size: 16px; flex-shrink: 0; }
+    .bt-status.idle  { background:rgba(255,255,255,0.04); border:1px solid var(--border); color:var(--text-muted); }
+    .bt-status.run   { background:rgba(245,196,0,0.08);  border:1px solid rgba(245,196,0,0.25); color:#f5c400; }
+    .bt-status.done  { background:rgba(61,214,140,0.07); border:1px solid rgba(61,214,140,0.2); color:#3dd68c; }
+    .bt-status.warn  { background:rgba(245,196,0,0.08);  border:1px solid rgba(245,196,0,0.4);  color:#f5c400; }
+    .bt-status.error { background:rgba(240,96,96,0.07);  border:1px solid rgba(240,96,96,0.2);  color:#f06060; }
+    .bt-status i { font-size:16px; flex-shrink:0; }
+    .bt-status-detail { font-size:11px; color:var(--text-muted); margin-top:3px; }
 
-    /* KPI 요약 */
-    .kpi-row {
+    /* ── 청산 경고 배너 ── */
+    .liquidation-banner {
+      padding: 16px 20px;
+      border-radius: var(--radius-md);
+      margin-bottom: 18px;
+      background: rgba(240,96,96,0.1);
+      border: 1.5px solid rgba(240,96,96,0.5);
+      display: none;
+    }
+    .liquidation-banner.show { display: block; }
+    .liquidation-banner-title {
+      font-size: 13px; font-weight: 700;
+      color: #f06060; letter-spacing: 1px;
+      margin-bottom: 6px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .liquidation-banner-body { font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.7; }
+    .liquidation-banner-body b { color: #f06060; }
+
+    /* KPI 카드 */
+    .kpi-grid-bt {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
+      gap: 10px;
+      margin-bottom: 18px;
     }
-    .kpi-card-sim {
+    .kc {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 14px 16px;
+      padding: 13px 15px;
     }
-    .kpi-card-sim.highlight { border-color: rgba(245,196,0,0.3); }
-    .kpi-card-sim.danger    { border-color: rgba(240,96,96,0.35); }
-    .kpi-card-sim.safe      { border-color: rgba(61,214,140,0.3); }
-    .kpi-label-s {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-    }
-    .kpi-val-s {
-      font-family: var(--font-d);
-      font-size: 24px;
-      letter-spacing: 1px;
-      line-height: 1;
-      color: var(--text-primary);
-    }
-    .kpi-val-s.pos    { color: #3dd68c; }
-    .kpi-val-s.neg    { color: #f06060; }
-    .kpi-val-s.yellow { color: #f5c400; }
-    .kpi-val-s.danger { color: #f06060; }
-    .kpi-sub-s {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
+    .kc.ok   { border-color: rgba(61,214,140,0.3); }
+    .kc.warn { border-color: rgba(245,196,0,0.35); }
+    .kc.bad  { border-color: rgba(240,96,96,0.4); }
+    .kc-label { font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:7px; }
+    .kc-val { font-family:var(--font-d); font-size:22px; letter-spacing:1px; line-height:1; color:var(--text-primary); }
+    .kc-val.g { color:#3dd68c; } .kc-val.r { color:#f06060; } .kc-val.y { color:#f5c400; }
+    .kc-sub { font-size:10px; color:var(--text-muted); margin-top:4px; }
 
-    /* 섹션 카드 */
-    .sim-card {
+    /* 에쿼티 섹션 */
+    .bt-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      margin-bottom: 20px;
-      overflow: hidden;
+      margin-bottom: 18px; overflow:hidden;
     }
-    .sim-card-header {
-      padding: 14px 20px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .bt-card-head {
+      padding:13px 18px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:10px;
     }
-    .sim-card-header i { color: #f5c400; font-size: 14px; }
-    .sim-card-title {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: var(--text-primary);
-      flex: 1;
-    }
-    .sim-card-body { padding: 20px; }
-
-    /* 차트 */
-    .chart-wrap {
-      position: relative;
-      height: 200px;
-    }
-    .chart-wrap.tall { height: 260px; }
+    .bt-card-head i { color:#f5c400; font-size:13px; }
+    .bt-card-title { font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-primary); flex:1; }
+    .bt-card-body { padding:18px; }
+    .chart-box { position:relative; height:260px; }
+    .chart-box.sm { height:180px; }
 
     /* 탭 */
-    .sim-tabs {
-      display: flex;
-      gap: 0;
-      border-bottom: 1px solid var(--border);
-      padding: 0 20px;
+    .bt-tabs { display:flex; border-bottom:1px solid var(--border); padding:0 18px; }
+    .bt-tab {
+      padding:10px 15px; font-size:11px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase;
+      color:var(--text-muted); cursor:pointer;
+      border-bottom:2px solid transparent;
+      background:none; border-top:none; border-left:none; border-right:none;
+      transition:all 0.15s;
     }
-    .sim-tab {
-      padding: 10px 16px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s;
-      background: none;
-      border-top: none;
-      border-left: none;
-      border-right: none;
-    }
-    .sim-tab.active { color: #f5c400; border-bottom-color: #f5c400; }
-    .sim-tab:hover:not(.active) { color: var(--text-secondary); }
-    .tab-pane { display: none; padding: 20px; }
-    .tab-pane.active { display: block; }
+    .bt-tab.active { color:#f5c400; border-bottom-color:#f5c400; }
+    .bt-tab:hover:not(.active) { color:var(--text-secondary); }
+    .tab-pane { display:none; padding:18px; }
+    .tab-pane.active { display:block; }
 
-    /* 테이블 */
-    .sim-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
+    /* 테이블 공통 */
+    .bt-tbl { width:100%; border-collapse:collapse; font-size:11px; }
+    .bt-tbl th {
+      font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase;
+      color:var(--text-muted); padding:8px 9px;
+      border-bottom:1px solid var(--border); text-align:left; white-space:nowrap;
     }
-    .sim-table th {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-      white-space: nowrap;
+    .bt-tbl td {
+      padding:7px 9px; border-bottom:1px solid rgba(255,255,255,0.04);
+      color:var(--text-secondary); white-space:nowrap;
     }
-    .sim-table td {
-      padding: 8px 10px;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-      color: var(--text-secondary);
-      white-space: nowrap;
-    }
-    .sim-table tr:last-child td { border-bottom: none; }
-    .sim-table tr:hover td { background: rgba(255,255,255,0.02); }
-    .sim-table td.pos { color: #3dd68c; }
-    .sim-table td.neg { color: #f06060; }
-    .sim-table td.yellow { color: #f5c400; }
-    .sim-table td.bold { color: var(--text-primary); font-weight: 600; }
-    .sim-table td.fatal { color: #f06060; font-weight: 700; }
-    .sim-table-wrap { max-height: 340px; overflow-y: auto; }
+    .bt-tbl tr:last-child td { border-bottom:none; }
+    .bt-tbl tr:hover td { background:rgba(255,255,255,0.02); }
+    .bt-tbl td.g { color:#3dd68c; } .bt-tbl td.r { color:#f06060; }
+    .bt-tbl td.y { color:#f5c400; } .bt-tbl td.w { color:var(--text-primary); font-weight:600; }
+    .bt-tbl td.fatal { color:#f06060; font-weight:700; }
+    .tbl-wrap { max-height:380px; overflow-y:auto; }
+    .tbl-wrap::-webkit-scrollbar { width:4px; }
+    .tbl-wrap::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
 
-    /* 청산 뱃지 */
-    .reason-badge {
-      display: inline-block;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: 10px;
+    /* 뱃지 */
+    .badge {
+      display:inline-block; font-size:9px; font-weight:700;
+      letter-spacing:0.8px; text-transform:uppercase;
+      padding:2px 7px; border-radius:10px;
     }
-    .reason-badge.tp   { background: rgba(61,214,140,0.15); color: #3dd68c; border: 1px solid rgba(61,214,140,0.3); }
-    .reason-badge.sl   { background: rgba(240,96,96,0.15);  color: #f06060; border: 1px solid rgba(240,96,96,0.3); }
-    .reason-badge.eod  { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.12); }
-    .reason-badge.ddl  { background: rgba(245,196,0,0.12); color: #f5c400; border: 1px solid rgba(245,196,0,0.3); }
+    .badge.tp  { background:rgba(61,214,140,0.15); color:#3dd68c; border:1px solid rgba(61,214,140,0.3); }
+    .badge.sl  { background:rgba(240,96,96,0.15);  color:#f06060; border:1px solid rgba(240,96,96,0.3); }
+    .badge.eod { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.5); border:1px solid rgba(255,255,255,0.12); }
+    .badge.ddl { background:rgba(245,196,0,0.12); color:#f5c400; border:1px solid rgba(245,196,0,0.3); }
+    .badge.liq { background:rgba(240,96,96,0.2); color:#ff8080; border:1px solid rgba(240,96,96,0.5); }
+    .badge.buy  { background:rgba(61,214,140,0.1); color:#3dd68c; border:1px solid rgba(61,214,140,0.2); }
+    .badge.sell { background:rgba(240,96,96,0.1); color:#f06060; border:1px solid rgba(240,96,96,0.2); }
 
-    /* 방향 뱃지 */
-    .dir-badge {
-      display: inline-block;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      padding: 2px 7px;
-      border-radius: 10px;
-      text-transform: uppercase;
+    /* 드릴다운 버튼 */
+    .drill-btn {
+      background:transparent; border:1px solid rgba(255,255,255,0.12);
+      border-radius:4px; color:var(--text-muted);
+      font-size:9px; letter-spacing:0.5px;
+      padding:2px 8px; cursor:pointer; transition:all 0.15s;
     }
-    .dir-badge.buy  { background: rgba(61,214,140,0.12); color: #3dd68c; border: 1px solid rgba(61,214,140,0.25); }
-    .dir-badge.sell { background: rgba(240,96,96,0.12);  color: #f06060; border: 1px solid rgba(240,96,96,0.25); }
-
-    /* 드릴다운 */
-    .drill-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px 20px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(240,96,96,0.05);
-    }
-    .drill-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: #f06060;
-      letter-spacing: 1px;
-    }
-    .drill-close {
-      margin-left: auto;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 16px;
-      padding: 0 4px;
-    }
-    .drill-close:hover { color: var(--text-primary); }
-
-    /* 진행률 바 */
-    .progress-bar-wrap {
-      height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 2px;
-      margin-top: 8px;
-      overflow: hidden;
-      display: none;
-    }
-    .progress-bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #f5c400, #ffe066);
-      border-radius: 2px;
-      transition: width 0.2s;
-    }
-
-    /* 스윕 설정 */
-    .sweep-input {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
-      color: var(--text-primary);
-      font-size: 11px;
-      padding: 5px 8px;
-      width: 100%;
-      margin-top: 4px;
-    }
-    .sweep-input:focus { outline: none; border-color: rgba(91,168,224,0.5); }
-    .sweep-hint {
-      font-size: 9px;
-      color: var(--text-muted);
-      margin-top: 3px;
-      letter-spacing: 0.3px;
-    }
+    .drill-btn:hover { border-color:rgba(245,196,0,0.4); color:#f5c400; }
 
     /* 빈 상태 */
-    .sim-empty {
-      text-align: center;
-      padding: 50px 24px;
-      color: var(--text-muted);
-    }
-    .sim-empty i { font-size: 36px; margin-bottom: 14px; display: block; opacity: 0.2; }
-    .sim-empty p { font-size: 13px; line-height: 1.7; }
+    .empty-state { text-align:center; padding:40px 24px; color:var(--text-muted); }
+    .empty-state i { font-size:32px; display:block; margin-bottom:12px; opacity:0.18; }
+    .empty-state p { font-size:12px; line-height:1.7; }
 
-    /* 스크롤바 */
-    .sim-table-wrap::-webkit-scrollbar { width: 4px; }
-    .sim-table-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-
-    @media (max-width: 1024px) {
-      .sim-layout { grid-template-columns: 260px 1fr; }
-      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    /* 타임라인 선택 정보 박스 */
+    .info-box {
+      padding:10px 14px; border-radius:7px;
+      background:rgba(91,168,224,0.06);
+      border:1px solid rgba(91,168,224,0.18);
+      font-size:11px; color:rgba(255,255,255,0.45);
+      margin-bottom:12px; line-height:1.7;
     }
-    @media (max-width: 768px) {
-      .sim-layout { grid-template-columns: 1fr; }
-      .sim-sidebar { position: static; }
+    .info-box b { color:rgba(91,168,224,0.9); }
+
+    /* 에쿼티 요약 바 */
+    .equity-bar {
+      display: flex; gap: 20px; flex-wrap: wrap;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+    .equity-bar-item { font-size:11px; color:var(--text-muted); }
+    .equity-bar-item b { color:var(--text-primary); }
+    .equity-bar-item.g b { color:#3dd68c; }
+    .equity-bar-item.r b { color:#f06060; }
+
+    /* ─── 차트 데이터 컨트롤 ─── */
+    .quick-range-wrap { display:flex; gap:4px; margin:6px 0 10px; }
+    .quick-range {
+      flex:1;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.1);
+      border-radius:5px;
+      color:rgba(255,255,255,0.5);
+      font-size:10px; font-weight:600; padding:5px 4px;
+      cursor:pointer; transition:all 0.15s;
+    }
+    .quick-range:hover { border-color:rgba(245,196,0,0.4); color:#f5c400; }
+    .quick-range.active { background:rgba(245,196,0,0.15); border-color:rgba(245,196,0,0.4); color:#f5c400; }
+
+    .btn-fetch {
+      width:100%; margin-top:10px; padding:10px;
+      background:transparent; color:#5ba8e0;
+      border:1px dashed rgba(91,168,224,0.4);
+      border-radius:8px; font-size:11px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase;
+      cursor:pointer; transition:all 0.15s;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+    }
+    .btn-fetch:hover { background:rgba(91,168,224,0.08); border-color:rgba(91,168,224,0.7); }
+    .btn-fetch:disabled { opacity:0.4; cursor:not-allowed; }
+    .data-status {
+      margin-top:8px; padding:7px 10px;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:6px;
+      font-size:10px; color:var(--text-muted);
+      text-align:center; line-height:1.5;
+    }
+    .data-status.ok { background:rgba(61,214,140,0.07); border-color:rgba(61,214,140,0.25); color:#3dd68c; }
+    .data-status.warn { background:rgba(245,196,0,0.07); border-color:rgba(245,196,0,0.25); color:#f5c400; }
+    .data-status.err { background:rgba(240,96,96,0.07); border-color:rgba(240,96,96,0.25); color:#f06060; }
+
+    /* ─── 추가 안전장치 섹션 강조 ─── */
+    .sb-extra {
+      background: rgba(91,168,224,0.03);
+      border-left: 2px solid rgba(91,168,224,0.4);
+    }
+
+    /* ─── CASE 카드 ─── */
+    .case-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 7px;
+      padding: 9px 11px;
+      margin-bottom: 7px;
+      transition: all 0.15s;
+    }
+    .case-card:hover { border-color: rgba(245,196,0,0.3); }
+    .case-card-head { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+    .case-badge {
+      font-size:9px; font-weight:700; letter-spacing:0.6px;
+      padding:2px 6px; border-radius:4px;
+    }
+    .case-badge.cons { background:rgba(61,214,140,0.15); color:#3dd68c; }
+    .case-badge.mid  { background:rgba(245,196,0,0.15);  color:#f5c400; }
+    .case-badge.agg  { background:rgba(240,96,96,0.15);  color:#f06060; }
+    .case-name { font-size:10px; font-weight:600; color:var(--text-primary); }
+    .case-card-body { font-size:9.5px; color:var(--text-muted); line-height:1.6; }
+    .case-card-body b { color:var(--text-secondary); }
+
+    /* ─── CASE 비교 결과 ─── */
+    .case-result-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .case-result-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 13px;
+      position: relative;
+    }
+    .case-result-card.base { border-color: rgba(245,196,0,0.4); }
+    .case-result-card.cons { border-color: rgba(61,214,140,0.4); }
+    .case-result-card.mid  { border-color: rgba(245,196,0,0.4); }
+    .case-result-card.agg  { border-color: rgba(240,96,96,0.4); }
+    .case-result-card.liquidated { background: rgba(240,96,96,0.06); }
+    .case-result-card.winner::before {
+      content: '👑'; position: absolute; top:-8px; right:8px; font-size:16px;
+    }
+    .case-result-title {
+      font-size:10px; font-weight:700; letter-spacing:0.6px;
+      margin-bottom:8px; display:flex; align-items:center; gap:6px;
+    }
+    .case-result-title .case-tag {
+      font-size:8px; padding:2px 5px; border-radius:3px;
+    }
+    .case-result-row {
+      display:flex; justify-content:space-between;
+      font-size:10px; padding:3px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .case-result-row:last-child { border-bottom:none; }
+    .case-result-row span:first-child { color:var(--text-muted); }
+    .case-result-row span:last-child { color:var(--text-primary); font-family:var(--font-d); font-weight:600; }
+    .case-result-row.g span:last-child { color:#3dd68c; }
+    .case-result-row.r span:last-child { color:#f06060; }
+    .case-result-row.y span:last-child { color:#f5c400; }
+    .case-liq-tag {
+      background:rgba(240,96,96,0.15); color:#ff8080;
+      font-size:9px; font-weight:700;
+      padding:2px 6px; border-radius:3px;
+      margin-left:auto;
+    }
+
+    /* ─── 가격 차트 + 진입 마커 ─── */
+    .price-chart-box { position:relative; height:380px; }
+
+    @media (max-width:1100px) {
+      .bt-layout { grid-template-columns:280px 1fr; }
+      .kpi-grid-bt { grid-template-columns:repeat(2,1fr); }
+      .case-result-grid { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width:768px)  {
+      .bt-layout { grid-template-columns:1fr; }
+      .bt-sidebar { position:static; max-height:none; }
+      .case-result-grid { grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -509,139 +524,255 @@
   <a href="trades.html"><i class="fas fa-list"></i> 거래내역</a>
   <a href="analytics.html"><i class="fas fa-chart-bar"></i> 분석</a>
   <a href="strategy.html" class="active"><i class="fas fa-chess"></i> 매매전략</a>
-  <a href="note.html"><i class="fas fa-book-open"></i> 트레이딩 노트 헌정</a>
+  <a href="note.html"><i class="fas fa-book-open"></i> 트레이딩 노트</a>
   <a href="admin.html"><i class="fas fa-cog"></i> 관리자 패널</a>
 </div>
 
 <main class="page-main">
   <div class="container">
 
-    <div class="page-title-bar" style="margin-bottom:24px;">
+    <div class="page-title-bar" style="margin-bottom:20px;">
       <div>
-        <div style="font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">EA Strategy Simulator</div>
+        <div style="font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);margin-bottom:5px;">AUTO LOGIC 3 · EA 백테스터</div>
         <h1 style="margin:0;">전략 분석</h1>
       </div>
-      <div style="margin-left:auto;font-size:11px;color:var(--text-muted);text-align:right;line-height:1.6;">
-        실거래 데이터 기반 바스켓 시뮬레이터<br>
-        <span style="color:rgba(245,196,0,0.6);">XAUUSD · M1 기준</span>
+      <div style="margin-left:auto;font-size:11px;color:var(--text-muted);text-align:right;line-height:1.7;">
+        MT4 실거래 데이터 기반 마틴게일 시뮬레이터<br>
+        <span style="color:rgba(245,196,0,0.6);">XAUUSD · 1pt = $0.01/lot</span>
       </div>
     </div>
 
-    <div class="sim-layout">
+    <div class="bt-layout">
 
-      <!-- ══════════════ 사이드바 ══════════════ -->
-      <aside class="sim-sidebar">
-        <div class="sidebar-header">
-          <div class="sidebar-header-icon"><i class="fas fa-sliders-h"></i></div>
-          <div class="sidebar-header-title">파라미터 설정</div>
+      <!-- ═══════════════ 사이드바 ═══════════════ -->
+      <aside class="bt-sidebar">
+        <div class="sb-head">
+          <div class="sb-head-icon"><i class="fas fa-sliders-h"></i></div>
+          <div class="sb-head-title">EA — AUTO LOGIC 3</div>
         </div>
 
-        <!-- 기간 설정 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-calendar-alt"></i> 분석 기간</div>
-          <div class="param-row">
-            <span class="param-label">시작일</span>
-            <input type="date" id="paramStartDate" class="param-input" style="width:120px;text-align:left;" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">종료일</span>
-            <input type="date" id="paramEndDate" class="param-input" style="width:120px;text-align:left;" />
-          </div>
-        </div>
+        <!-- ─────────── 차트 데이터 소스 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-database"></i> 차트 데이터 (XAUUSD)</div>
 
-        <!-- 거래 방향 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-exchange-alt"></i> 거래 방향</div>
-          <div class="param-row">
-            <span class="param-label">BUY</span>
-            <div class="param-toggle">
-              <button id="toggleBuy" class="on" onclick="toggleParam('buy')">ON</button>
-              <button onclick="toggleParam('buy')">OFF</button>
+          <!-- 기간 선택 -->
+          <div class="pr">
+            <span class="pr-label">시작일</span>
+            <input type="date" id="paramStartDate" class="pr-input" style="width:130px;" />
+          </div>
+          <div class="pr">
+            <span class="pr-label">종료일</span>
+            <input type="date" id="paramEndDate" class="pr-input" style="width:130px;" />
+          </div>
+          <div class="quick-range-wrap">
+            <button class="quick-range" onclick="setDateRange('3m')">3개월</button>
+            <button class="quick-range" onclick="setDateRange('ytd')">올해</button>
+            <button class="quick-range" onclick="setDateRange('1y')">1년</button>
+            <button class="quick-range" onclick="setDateRange('2y')">2년</button>
+          </div>
+
+          <!-- 데이터 소스 -->
+          <div class="pr">
+            <span class="pr-label">정밀도<small>OHLC 봉 단위</small></span>
+            <select id="paramTimeframe" class="pr-select">
+              <option value="M1" selected>1분봉 (M1) · 최정밀</option>
+              <option value="M5">5분봉 (M5)</option>
+              <option value="M15">15분봉 (M15)</option>
+              <option value="H1">시간봉 (H1)</option>
+              <option value="D1">일봉 (D1)</option>
+            </select>
+          </div>
+          <div class="pr">
+            <span class="pr-label">데이터 소스</span>
+            <select id="paramSource" class="pr-select" onchange="onSourceChange()">
+              <option value="twelvedata" selected>Twelve Data (분봉 가능)</option>
+              <option value="stooq">Stooq (일봉만, 무료)</option>
+              <option value="upload">CSV 직접 업로드</option>
+            </select>
+          </div>
+          <div id="apiKeyRow" class="pr">
+            <span class="pr-label">API Key<small>twelvedata.com</small></span>
+            <input type="password" id="paramApiKey" class="pr-input" placeholder="키 입력" style="width:130px;" />
+          </div>
+          <div id="csvUploadRow" style="display:none;margin-top:8px;">
+            <div class="upload-zone" id="candleUploadZone" style="padding:10px;">
+              <input type="file" id="candleFileInput" accept=".csv,.txt" />
+              <div class="upload-zone-icon" style="font-size:18px;"><i class="fas fa-file-csv"></i></div>
+              <div class="upload-zone-text" style="font-size:10px;">
+                <strong>CSV 업로드</strong><br>
+                <span style="font-size:9px;">시각,O,H,L,C 형식</span>
+              </div>
             </div>
           </div>
-          <div class="param-row">
-            <span class="param-label">SELL</span>
-            <div class="param-toggle">
-              <button id="toggleSell" class="on" onclick="toggleParam('sell')">ON</button>
-              <button onclick="toggleParam('sell')">OFF</button>
+
+          <button class="btn-fetch" id="btnFetch" onclick="fetchCandles()">
+            <i class="fas fa-cloud-download-alt"></i> 차트 데이터 받기
+          </button>
+          <div id="dataStatus" class="data-status">데이터 없음</div>
+
+          <!-- 시간대 보정 -->
+          <div class="pr" style="margin-top:10px;">
+            <span class="pr-label">브로커 TZ<small>KST 자동변환</small></span>
+            <select id="paramBrokerTz" class="pr-select">
+              <option value="0">UTC+0 (런던)</option>
+              <option value="2">UTC+2 (동유럽)</option>
+              <option value="3" selected>UTC+3 (Tradeco 기본)</option>
+              <option value="-5">UTC-5 (뉴욕)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ─────────── 메타 정보 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-hashtag"></i> EA 메타</div>
+          <div class="pr">
+            <span class="pr-label">매직넘버</span>
+            <input type="number" id="paramMagic" class="pr-input" value="234568" />
+          </div>
+        </div>
+
+        <!-- ─────────── [1] 거래 방향 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-exchange-alt"></i> [1] 거래 방향</div>
+          <div class="pr">
+            <span class="pr-label">매수(Long) 허용</span>
+            <div class="pr-toggle" id="togBuyWrap">
+              <button id="togBuyOn" class="on" onclick="ptoggle('buy')">ON</button>
+              <button id="togBuyOff" onclick="ptoggle('buy')">OFF</button>
+            </div>
+          </div>
+          <div class="pr">
+            <span class="pr-label">매도(Short) 허용</span>
+            <div class="pr-toggle" id="togSellWrap">
+              <button id="togSellOn" class="on" onclick="ptoggle('sell')">ON</button>
+              <button id="togSellOff" onclick="ptoggle('sell')">OFF</button>
             </div>
           </div>
         </div>
 
-        <!-- 핵심 파라미터 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-cog"></i> 핵심 파라미터</div>
-          <div class="param-row">
-            <span class="param-label">시작 랏</span>
-            <input type="number" id="paramStartLot" class="param-input" value="0.01" step="0.01" min="0.01" />
+        <!-- ─────────── [2] 초기 설정 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-seedling"></i> [2] 초기 설정</div>
+          <div class="pr">
+            <span class="pr-label">초기 시드 ($)<small>계좌 시작 잔고</small></span>
+            <input type="number" id="paramSeed" class="pr-input" value="1000" step="100" min="100" />
           </div>
-          <div class="param-row">
-            <span class="param-label">랏 배수</span>
-            <input type="number" id="paramLotMult" class="param-input" value="1.22" step="0.01" min="1.0" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">추가진입 간격 (pt)</span>
-            <input type="number" id="paramAddInterval" class="param-input" value="600" step="50" min="50" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">최대 포지션 수</span>
-            <input type="number" id="paramMaxPos" class="param-input" value="5" step="1" min="1" max="20" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">익절 포인트</span>
-            <input type="number" id="paramTpPts" class="param-input" value="220" step="10" min="10" />
+          <div class="pr">
+            <span class="pr-label">시작 랏<small>Initial Lot</small></span>
+            <input type="number" id="paramStartLot" class="pr-input" value="0.01" step="0.01" min="0.01" max="1" />
           </div>
         </div>
 
-        <!-- 리스크 설정 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-shield-alt"></i> 리스크 관리</div>
-          <div class="param-row">
-            <span class="param-label">통합 손절 ($)</span>
-            <input type="number" id="paramSlUsd" class="param-input" value="130" step="10" min="10" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">일일 최대 손실 ($)</span>
-            <input type="number" id="paramDailyLoss" class="param-input" value="150" step="10" min="10" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">쿨타임 (초)</span>
-            <input type="number" id="paramCooldown" class="param-input" value="600" step="60" min="0" />
-          </div>
-          <div class="param-row">
-            <span class="param-label">재진입 최소 (초)</span>
-            <input type="number" id="paramReentry" class="param-input" value="60" step="30" min="0" />
+        <!-- ─────────── [3] 수익 설정 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-bullseye"></i> [3] 수익 설정</div>
+          <div class="pr">
+            <span class="pr-label">익절 포인트<small>TP (1pt=0.01)</small></span>
+            <input type="number" id="paramTpPts" class="pr-input" value="300" step="10" min="10" />
           </div>
         </div>
 
-        <!-- 세션 설정 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-clock"></i> 세션 설정</div>
-          <div class="session-label">
+        <!-- ─────────── [4] 마틴게일 설정 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-layer-group"></i> [4] 마틴게일 설정</div>
+          <div class="pr">
+            <span class="pr-label">랏 배수<small>Lot Multiplier</small></span>
+            <input type="number" id="paramLotMult" class="pr-input" value="1.5" step="0.1" min="1.0" max="5.0" />
+          </div>
+          <div class="pr">
+            <span class="pr-label">추가진입 간격(pt)<small>Grid Interval</small></span>
+            <input type="number" id="paramInterval" class="pr-input" value="300" step="10" min="10" />
+          </div>
+          <div class="pr">
+            <span class="pr-label">방향별 최대 주문수<small>Max Orders</small></span>
+            <input type="number" id="paramMaxOrders" class="pr-input" value="99" step="1" min="1" max="99" />
+          </div>
+        </div>
+
+        <!-- ─────────── [5] 청산 모드 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-shield-alt"></i> [5] 청산 모드</div>
+          <div class="pr">
+            <span class="pr-label">통합 익절(TP) 사용<small>바스켓 전체</small></span>
+            <div class="pr-toggle">
+              <button id="togTpOn" class="on" onclick="ptoggle('tp')">ON</button>
+              <button id="togTpOff" onclick="ptoggle('tp')">OFF</button>
+            </div>
+          </div>
+          <div class="pr">
+            <span class="pr-label">청산 후 쿨타임 (초)<small>0 = 사용안함</small></span>
+            <input type="number" id="paramCooldown" class="pr-input" value="0" step="60" min="0" />
+          </div>
+          <div class="pr">
+            <span class="pr-label">통합 손절 금액 ($)<small>0 = 미사용</small></span>
+            <input type="number" id="paramSlUsd" class="pr-input" value="0" step="10" min="0" />
+          </div>
+        </div>
+
+        <!-- ─────────── 추가 안전장치 (EA 외부) ─────────── -->
+        <div class="sb-section sb-extra">
+          <div class="sb-section-title" style="color:#5ba8e0;">
+            <i class="fas fa-shield-virus"></i> 추가 안전장치
+          </div>
+          <div style="font-size:9px;color:var(--text-muted);margin:-4px 0 8px;letter-spacing:0.3px;">EA 외부 시뮬레이션 옵션</div>
+          <div class="pr">
+            <span class="pr-label">일일 최대 손실 ($)<small>0 = 미사용</small></span>
+            <input type="number" id="paramDailyLoss" class="pr-input" value="0" step="10" min="0" />
+          </div>
+          <div class="pr">
+            <span class="pr-label">배증 시 랏 증가<small>시드 2배마다</small></span>
+            <div class="pr-toggle">
+              <button id="togDoublingOn" onclick="ptoggle('doubling')">ON</button>
+              <button id="togDoublingOff" class="on" onclick="ptoggle('doubling')">OFF</button>
+            </div>
+          </div>
+          <div id="doublingOptions" style="display:none;">
+            <div class="pr">
+              <span class="pr-label">증가 방식</span>
+              <select id="paramDoublingMode" class="pr-select">
+                <option value="add" selected>고정값 추가 (+lot)</option>
+                <option value="mul">시작랏 배수 (×N)</option>
+              </select>
+            </div>
+            <div class="pr">
+              <span class="pr-label">증가량</span>
+              <input type="number" id="paramDoublingAdd" class="pr-input" value="0.01" step="0.01" min="0.01" />
+            </div>
+            <div style="font-size:9px;color:var(--text-muted);line-height:1.6;margin-top:4px;">
+              예(고정): $1000→$2000일 때 0.01→0.02 → 0.03<br>
+              예(배수×2): 0.01→0.02→0.04
+            </div>
+          </div>
+        </div>
+
+        <!-- ─────────── 진입 가능 시간 (KST) ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-clock"></i> 진입 가능 시간 (KST)</div>
+          <div class="sess-label">
             <span>세션 1</span>
-            <div class="param-toggle" style="transform:scale(0.85);transform-origin:right;">
-              <button id="toggleSess1" class="on" onclick="toggleParam('sess1')">ON</button>
-              <button onclick="toggleParam('sess1')">OFF</button>
+            <div class="pr-toggle" style="transform:scale(0.82);transform-origin:right;">
+              <button id="togS1On" class="on" onclick="ptoggle('s1')">ON</button>
+              <button id="togS1Off" onclick="ptoggle('s1')">OFF</button>
             </div>
           </div>
-          <div class="session-row" id="sess1Row">
-            <input type="time" id="sess1Start" value="11:00" />
-            <input type="time" id="sess1End"   value="15:30" />
+          <div class="sess-row">
+            <input type="time" id="sess1Start" value="00:00" />
+            <input type="time" id="sess1End"   value="23:59" />
           </div>
-          <div class="session-label" style="margin-top:8px;">
+          <div class="sess-label" style="margin-top:8px;">
             <span>세션 2</span>
-            <div class="param-toggle" style="transform:scale(0.85);transform-origin:right;">
-              <button id="toggleSess2" class="on" onclick="toggleParam('sess2')">ON</button>
-              <button onclick="toggleParam('sess2')">OFF</button>
+            <div class="pr-toggle" style="transform:scale(0.82);transform-origin:right;">
+              <button id="togS2On" onclick="ptoggle('s2')">ON</button>
+              <button id="togS2Off" class="on" onclick="ptoggle('s2')">OFF</button>
             </div>
           </div>
-          <div class="session-row" id="sess2Row">
-            <input type="time" id="sess2Start" value="18:30" />
-            <input type="time" id="sess2End"   value="19:30" />
+          <div class="sess-row">
+            <input type="time" id="sess2Start" value="22:00" />
+            <input type="time" id="sess2End"   value="02:00" />
           </div>
-          <div style="margin-top:12px;">
-            <div class="sidebar-section-title" style="margin-bottom:6px;"><i class="fas fa-calendar-week"></i> 요일 필터</div>
-            <div class="weekday-grid">
+          <div style="margin-top:10px;">
+            <div class="sb-section-title" style="margin-bottom:6px;"><i class="fas fa-calendar-week"></i> 요일 (KST)</div>
+            <div class="wd-grid">
               <button class="wd-btn on" data-day="1">월</button>
               <button class="wd-btn on" data-day="2">화</button>
               <button class="wd-btn on" data-day="3">수</button>
@@ -651,170 +782,205 @@
           </div>
         </div>
 
-        <!-- 파라미터 스윕 -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-title"><i class="fas fa-th"></i> 파라미터 스윕</div>
-          <div style="margin-bottom:8px;">
-            <div class="sweep-hint">TP 포인트 (쉼표 구분)</div>
-            <input type="text" id="sweepTp" class="sweep-input" placeholder="180,200,220,250" value="180,200,220,250" />
+        <!-- ─────────── CASE 비교 시뮬레이션 ─────────── -->
+        <div class="sb-section">
+          <div class="sb-section-title"><i class="fas fa-th"></i> CASE 비교 시뮬레이션</div>
+          <div style="font-size:10px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">
+            현재 설정을 <b style="color:#f5c400;">기본</b>으로,<br>
+            3가지 추천 CASE를 한번에 비교.
           </div>
-          <div style="margin-bottom:8px;">
-            <div class="sweep-hint">랏 배수 (쉼표 구분)</div>
-            <input type="text" id="sweepMult" class="sweep-input" placeholder="1.18,1.20,1.22,1.25" value="1.18,1.20,1.22,1.25" />
+
+          <div class="case-card" id="caseCard1">
+            <div class="case-card-head">
+              <span class="case-badge cons">CASE 1</span>
+              <span class="case-name">보수적 (자본방어)</span>
+            </div>
+            <div class="case-card-body">
+              TP <b>500pt</b> · 배수 <b>1.3</b> · 간격 <b>500pt</b><br>
+              일일손실 <b>$50</b> · 통합SL <b>$200</b>
+            </div>
           </div>
-          <div style="margin-bottom:8px;">
-            <div class="sweep-hint">추가진입 간격 (쉼표 구분)</div>
-            <input type="text" id="sweepInterval" class="sweep-input" placeholder="400,500,600" value="400,500,600" />
+
+          <div class="case-card" id="caseCard2">
+            <div class="case-card-head">
+              <span class="case-badge mid">CASE 2</span>
+              <span class="case-name">중도적 (균형)</span>
+            </div>
+            <div class="case-card-body">
+              TP <b>300pt</b> · 배수 <b>1.5</b> · 간격 <b>300pt</b><br>
+              일일손실 <b>$100</b> · 통합SL <b>$500</b>
+            </div>
           </div>
-          <div class="progress-bar-wrap" id="sweepProgressWrap">
-            <div class="progress-bar-fill" id="sweepProgressBar" style="width:0%"></div>
+
+          <div class="case-card" id="caseCard3">
+            <div class="case-card-head">
+              <span class="case-badge agg">CASE 3</span>
+              <span class="case-name">공격적 (실제 EA)</span>
+            </div>
+            <div class="case-card-body">
+              TP <b>300pt</b> · 배수 <b>1.5</b> · 간격 <b>300pt</b><br>
+              안전장치 <b>없음</b> · 최대주문 <b>99</b>
+            </div>
+          </div>
+
+          <div class="prog-wrap" id="progWrap">
+            <div class="prog-fill" id="progFill" style="width:0%"></div>
           </div>
         </div>
 
-        <!-- 실행 버튼 -->
-        <div class="sidebar-section">
-          <button class="btn-run" id="btnRun" onclick="runSimulation()">
-            <i class="fas fa-play"></i> 시뮬레이션 실행
+        <!-- ─────────── 실행 버튼 ─────────── -->
+        <div class="sb-section">
+          <button class="btn-run" id="btnRun" onclick="runBacktest()">
+            <i class="fas fa-play"></i> 백테스트 실행 (기본 세팅)
           </button>
-          <button class="btn-sweep" id="btnSweep" onclick="runSweep()">
-            <i class="fas fa-th"></i> 파라미터 스윕 실행
+          <button class="btn-sweep" id="btnSweep" onclick="runCaseCompare()">
+            <i class="fas fa-th"></i> CASE 비교 (4종 한번에)
           </button>
         </div>
-
       </aside>
 
-      <!-- ══════════════ 메인 영역 ══════════════ -->
-      <section class="sim-main">
+      <!-- ═══════════════ 메인 영역 ═══════════════ -->
+      <section class="bt-main">
 
         <!-- 상태 배너 -->
-        <div class="sim-status idle" id="simStatus">
+        <div class="bt-status idle" id="btStatus">
           <i class="fas fa-info-circle"></i>
-          <span id="simStatusText">실거래 데이터를 기반으로 EA 전략을 시뮬레이션합니다. 파라미터를 설정하고 실행하세요.</span>
-        </div>
-
-        <!-- KPI 요약 -->
-        <div class="kpi-row" id="kpiRow">
-          <div class="kpi-card-sim highlight">
-            <div class="kpi-label-s">총 손익</div>
-            <div class="kpi-val-s" id="kpiPnl">—</div>
-            <div class="kpi-sub-s" id="kpiPnlSub">—</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">바스켓 / 승률</div>
-            <div class="kpi-val-s" id="kpiBaskets">—</div>
-            <div class="kpi-sub-s" id="kpiBasketSub">—</div>
-          </div>
-          <div class="kpi-card-sim" id="kpiStopCard">
-            <div class="kpi-label-s">청산 횟수</div>
-            <div class="kpi-val-s" id="kpiStopouts">—</div>
-            <div class="kpi-sub-s" id="kpiStopSub">—</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">최대 손실 바스켓</div>
-            <div class="kpi-val-s" id="kpiWorst">—</div>
-            <div class="kpi-sub-s" id="kpiWorstSub">—</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">Profit Factor</div>
-            <div class="kpi-val-s" id="kpiPF">—</div>
-            <div class="kpi-sub-s">총수익 / 총손실</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">평균 바스켓 손익</div>
-            <div class="kpi-val-s" id="kpiAvgBasket">—</div>
-            <div class="kpi-sub-s" id="kpiAvgSub">—</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">Max Drawdown</div>
-            <div class="kpi-val-s" id="kpiMdd">—</div>
-            <div class="kpi-sub-s" id="kpiMddSub">—</div>
-          </div>
-          <div class="kpi-card-sim">
-            <div class="kpi-label-s">시뮬레이션 기간</div>
-            <div class="kpi-val-s" id="kpiPeriod" style="font-size:18px;">—</div>
-            <div class="kpi-sub-s" id="kpiPeriodSub">—</div>
+          <div>
+            <div id="btStatusText">사이드바에서 <b>차트 데이터를 받고</b>, <b>EA 설정값을 조정</b>한 후 <b>백테스트 실행</b>을 눌러주세요.</div>
+            <div class="bt-status-detail" id="btStatusDetail"></div>
           </div>
         </div>
 
-        <!-- 차트 섹션 -->
-        <div class="sim-card">
-          <div class="sim-card-header">
+        <!-- CASE 비교 결과 카드 (CASE 비교 실행시에만 표시) -->
+        <div id="caseCompareResult" style="display:none; margin-bottom:18px;">
+          <div class="bt-card">
+            <div class="bt-card-head">
+              <i class="fas fa-th"></i>
+              <span class="bt-card-title">CASE 비교 결과 (4종)</span>
+              <span style="font-size:10px;color:var(--text-muted);">청산 없이 살아남은 CASE 중 최대 수익 = 👑 추천</span>
+            </div>
+            <div class="bt-card-body">
+              <div class="case-result-grid" id="caseResultGrid"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 청산 경고 배너 -->
+        <div class="liquidation-banner" id="liqBanner">
+          <div class="liquidation-banner-title"><i class="fas fa-exclamation-triangle"></i> 계좌 청산 발생</div>
+          <div class="liquidation-banner-body" id="liqBannerBody"></div>
+        </div>
+
+        <!-- 데이터 정보 박스 -->
+        <div class="info-box" id="dataInfoBox" style="display:none;"></div>
+
+        <!-- KPI 카드 -->
+        <div class="kpi-grid-bt" id="kpiGrid">
+          <div class="kc"><div class="kc-label">총 손익</div><div class="kc-val" id="kcPnl">—</div><div class="kc-sub" id="kcPnlSub">—</div></div>
+          <div class="kc"><div class="kc-label">최종 잔고</div><div class="kc-val" id="kcBalance">—</div><div class="kc-sub" id="kcBalanceSub">수익률 —</div></div>
+          <div class="kc"><div class="kc-label">바스켓 / 승률</div><div class="kc-val" id="kcWin">—</div><div class="kc-sub" id="kcWinSub">—</div></div>
+          <div class="kc"><div class="kc-label">Profit Factor</div><div class="kc-val" id="kcPF">—</div><div class="kc-sub">총수익 / 총손실</div></div>
+          <div class="kc"><div class="kc-label">Max Drawdown</div><div class="kc-val" id="kcMDD">—</div><div class="kc-sub" id="kcMDDSub">—</div></div>
+          <div class="kc"><div class="kc-label">청산(SL/DDL)</div><div class="kc-val" id="kcSL">—</div><div class="kc-sub" id="kcSLSub">—</div></div>
+          <div class="kc"><div class="kc-label">최대 동시 포지션</div><div class="kc-val" id="kcMaxPos">—</div><div class="kc-sub" id="kcMaxPosSub">—</div></div>
+          <div class="kc"><div class="kc-label">시뮬레이션 기간</div><div class="kc-val" id="kcPeriod" style="font-size:16px;">—</div><div class="kc-sub" id="kcPeriodSub">—</div></div>
+        </div>
+
+        <!-- 에쿼티 커브 -->
+        <div class="bt-card">
+          <div class="bt-card-head">
             <i class="fas fa-chart-area"></i>
-            <span class="sim-card-title">에쿼티 커브 / 드로다운</span>
+            <span class="bt-card-title">에쿼티 커브 / 드로다운</span>
+            <span id="equityLegend" style="font-size:10px;color:var(--text-muted);"></span>
           </div>
-          <div class="sim-card-body">
-            <div class="chart-wrap tall">
+          <div class="bt-card-body">
+            <div class="equity-bar" id="equityBar" style="display:none;">
+              <div class="equity-bar-item g"><b id="eqPeak">—</b><br><span>최고 잔고</span></div>
+              <div class="equity-bar-item r"><b id="eqTrough">—</b><br><span>최저 잔고</span></div>
+              <div class="equity-bar-item"><b id="eqFinal">—</b><br><span>최종 잔고</span></div>
+              <div class="equity-bar-item r"><b id="eqMdd">—</b><br><span>Max DD</span></div>
+            </div>
+            <div class="chart-box">
               <canvas id="equityChart"></canvas>
             </div>
           </div>
         </div>
 
-        <!-- 바스켓 + 포지션 + 드릴다운 탭 -->
-        <div class="sim-card">
-          <div class="sim-tabs">
-            <button class="sim-tab active" onclick="switchTab('baskets')">바스켓 요약</button>
-            <button class="sim-tab" onclick="switchTab('drill')">청산 분석</button>
-            <button class="sim-tab" onclick="switchTab('sweep')">스윕 결과</button>
+        <!-- 가격 차트 + 진입/청산 마커 -->
+        <div class="bt-card" id="priceChartCard" style="display:none;">
+          <div class="bt-card-head">
+            <i class="fas fa-chart-line"></i>
+            <span class="bt-card-title">XAUUSD 가격 차트 + 진입/청산 마커</span>
+            <span id="priceLegend" style="font-size:10px;color:var(--text-muted);">
+              <i class="fas fa-circle" style="color:#3dd68c;font-size:8px;"></i> 매수 진입
+              &nbsp;<i class="fas fa-circle" style="color:#f06060;font-size:8px;"></i> 매도 진입
+              &nbsp;<i class="fas fa-times" style="color:#f5c400;"></i> 청산
+            </span>
+          </div>
+          <div class="bt-card-body">
+            <div class="price-chart-box">
+              <canvas id="priceChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 결과 탭 -->
+        <div class="bt-card">
+          <div class="bt-tabs">
+            <button class="bt-tab active" onclick="switchTab('baskets')">바스켓 요약</button>
+            <button class="bt-tab" onclick="switchTab('drill')">포지션 드릴다운</button>
+            <button class="bt-tab" onclick="switchTab('sweep')">CASE 비교</button>
           </div>
 
-          <!-- 바스켓 요약 탭 -->
+          <!-- 바스켓 요약 -->
           <div class="tab-pane active" id="tabBaskets">
-            <div class="sim-table-wrap">
-              <table class="sim-table" id="basketTable">
+            <div class="tbl-wrap">
+              <table class="bt-tbl" id="basketTable">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>방향</th>
-                    <th>진입 시각</th>
-                    <th>청산 시각</th>
-                    <th>포지션 수</th>
-                    <th>누적 랏</th>
-                    <th>평균 단가</th>
-                    <th>청산가</th>
-                    <th>손익</th>
-                    <th>사유</th>
-                    <th>상세</th>
+                    <th>#</th><th>방향</th><th>진입(KST)</th><th>청산(KST)</th>
+                    <th>포지션</th><th>누적랏</th><th>평균단가</th><th>청산가</th>
+                    <th>손익($)</th><th>잔고($)</th><th>사유</th><th>상세</th>
                   </tr>
                 </thead>
                 <tbody id="basketTbody">
-                  <tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">시뮬레이션을 실행하세요</td></tr>
+                  <tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-muted);">백테스트를 실행하세요</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          <!-- 청산 분석 탭 -->
+          <!-- 포지션 드릴다운 -->
           <div class="tab-pane" id="tabDrill">
             <div id="drillContent">
-              <div class="sim-empty">
+              <div class="empty-state">
                 <i class="fas fa-search"></i>
-                <p>바스켓 요약 탭에서 <strong style="color:var(--text-primary);">상세 버튼</strong>을 클릭하면<br>해당 바스켓의 포지션별 분석이 표시됩니다.</p>
+                <p>바스켓 요약 탭에서 <strong style="color:var(--text-primary);">상세 버튼</strong>을 클릭하면<br>포지션별 상세 분석이 표시됩니다.</p>
               </div>
             </div>
           </div>
 
-          <!-- 스윕 결과 탭 -->
+          <!-- CASE 비교 결과 -->
           <div class="tab-pane" id="tabSweep">
             <div id="sweepContent">
-              <div class="sim-empty">
+              <div class="empty-state">
                 <i class="fas fa-th"></i>
-                <p>사이드바에서 <strong style="color:var(--text-primary);">파라미터 스윕 실행</strong>을 클릭하면<br>조합별 결과가 표시됩니다.</p>
+                <p>사이드바에서 <strong style="color:var(--text-primary);">CASE 비교 (4종 한번에)</strong> 버튼을 클릭하면<br>4가지 CASE 비교 결과가 표시됩니다.</p>
               </div>
             </div>
           </div>
-
         </div>
 
       </section>
-    </div>
-  </div>
+    </div><!-- /bt-layout -->
+  </div><!-- /container -->
 </main>
 
 <footer class="site-footer">
   <div class="container">
     <div class="footer-content">
       <div class="footer-brand"><i class="fas fa-rocket footer-rocket"></i>334&thinsp;TRADINGLOG</div>
-      <p class="footer-disclaimer">⚠️ 본 사이트는 개인 매매기록 아카이브입니다. 시뮬레이션 결과는 미래 수익을 보장하지 않습니다.</p>
+      <p class="footer-disclaimer">⚠️ 본 시뮬레이터는 과거 데이터 기반입니다. 시뮬레이션 결과는 미래 수익을 보장하지 않습니다.</p>
     </div>
   </div>
 </footer>
@@ -822,15 +988,16 @@
 <script src="js/utils.v11.js"></script>
 <script src="js/strategy.v11.js"></script>
 <script>
+  /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');
   const navDrawer  = document.getElementById('navDrawer');
   let hoverTimer;
-  const openDrawer  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
-  const closeDrawer = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
-  navMenuBtn.addEventListener('mouseenter', openDrawer);
-  navMenuBtn.addEventListener('mouseleave', closeDrawer);
-  navDrawer.addEventListener('mouseenter', openDrawer);
-  navDrawer.addEventListener('mouseleave', closeDrawer);
+  const openD  = () => { clearTimeout(hoverTimer); navDrawer.classList.add('open'); };
+  const closeD = () => { hoverTimer = setTimeout(() => navDrawer.classList.remove('open'), 180); };
+  navMenuBtn.addEventListener('mouseenter', openD);
+  navMenuBtn.addEventListener('mouseleave', closeD);
+  navDrawer.addEventListener('mouseenter', openD);
+  navDrawer.addEventListener('mouseleave', closeD);
   navMenuBtn.addEventListener('click', () => navDrawer.classList.toggle('open'));
 </script>
 </body>

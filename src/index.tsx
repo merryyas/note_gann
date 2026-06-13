@@ -541,6 +541,276 @@ app.get('/api/ticker-debug', async (c) => {
   return c.json(results)
 })
 
+// ════════════════════════════════════════════════════════════════
+//  CANDLES API  — XAUUSD OHLC 데이터 수집/캐싱
+// ════════════════════════════════════════════════════════════════
+
+type Candle = { ts: number; o: number; h: number; l: number; c: number; v?: number }
+
+// ─── Twelve Data 1분봉 fetcher ───────────────────────────────
+// XAU/USD 1분봉, 한 번에 5000봉까지 (무료 플랜 800req/일)
+async function fetchTwelveData(
+  apiKey: string,
+  symbol: string,         // 'XAU/USD'
+  interval: string,       // '1min','5min','15min','1h','1day'
+  startISO: string,       // 'YYYY-MM-DD HH:mm:ss' UTC
+  endISO: string,
+  outputsize = 5000
+): Promise<Candle[]> {
+  const url = new URL('https://api.twelvedata.com/time_series')
+  url.searchParams.set('symbol', symbol)
+  url.searchParams.set('interval', interval)
+  url.searchParams.set('start_date', startISO)
+  url.searchParams.set('end_date', endISO)
+  url.searchParams.set('outputsize', String(outputsize))
+  url.searchParams.set('format', 'JSON')
+  url.searchParams.set('timezone', 'UTC')
+  url.searchParams.set('apikey', apiKey)
+  const res = await fetch(url.toString())
+  if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`)
+  const json = await res.json() as {
+    status?: string; code?: number; message?: string;
+    values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume?: string }>
+  }
+  if (json.status === 'error') throw new Error(`TwelveData: ${json.message || 'unknown error'}`)
+  if (!Array.isArray(json.values)) return []
+  return json.values.map(v => ({
+    // 'YYYY-MM-DD HH:mm:ss' (UTC) → epoch seconds
+    ts: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
+    o: parseFloat(v.open),
+    h: parseFloat(v.high),
+    l: parseFloat(v.low),
+    c: parseFloat(v.close),
+    v: v.volume ? parseFloat(v.volume) : 0
+  })).filter(c => !isNaN(c.o) && !isNaN(c.c)).sort((a, b) => a.ts - b.ts)
+}
+
+// ─── Stooq XAUUSD 시간봉/일봉 (API 키 불필요, 백업용) ─────────
+// Stooq는 일봉 위주이지만 hourly도 일부 제공
+async function fetchStooqOHLC(
+  symbol: string,    // 'xauusd'
+  interval: 'd' | 'w' | 'm'   // d=daily,w=weekly,m=monthly
+): Promise<Candle[]> {
+  const url = `https://stooq.com/q/d/l/?s=${symbol}&i=${interval}`
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept': 'text/csv,text/plain,*/*',
+      'Referer': 'https://stooq.com/'
+    }
+  })
+  if (!res.ok) throw new Error(`Stooq HTTP ${res.status}`)
+  const text = await res.text()
+  const lines = text.trim().split('\n')
+  if (lines.length < 2) return []
+  // header: Date,Open,High,Low,Close,Volume
+  const candles: Candle[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',')
+    if (cols.length < 5) continue
+    const ts = Math.floor(Date.parse(cols[0] + 'T00:00:00Z') / 1000)
+    const o = parseFloat(cols[1]), h = parseFloat(cols[2]), l = parseFloat(cols[3]), cP = parseFloat(cols[4])
+    if (isNaN(ts) || isNaN(o)) continue
+    candles.push({ ts, o, h, l, c: cP, v: cols[5] ? parseFloat(cols[5]) : 0 })
+  }
+  return candles.sort((a, b) => a.ts - b.ts)
+}
+
+// ─── 캐시에서 캔들 조회 ─────────────────────────────────────
+// GET /api/candles?symbol=XAUUSD&tf=M1&from=1735689600&to=1748908800
+app.get('/api/candles', async (c) => {
+  const url = new URL(c.req.url)
+  const symbol    = (url.searchParams.get('symbol') || 'XAUUSD').toUpperCase()
+  const timeframe = (url.searchParams.get('tf') || 'M1').toUpperCase()
+  const from = parseInt(url.searchParams.get('from') || '0')
+  const to   = parseInt(url.searchParams.get('to')   || String(Math.floor(Date.now() / 1000)))
+  try {
+    const rows = await c.env.DB.prepare(`
+      SELECT ts_utc as ts, open as o, high as h, low as l, close as c, volume as v
+      FROM candles
+      WHERE symbol=? AND timeframe=? AND ts_utc>=? AND ts_utc<=?
+      ORDER BY ts_utc ASC
+      LIMIT 200000
+    `).bind(symbol, timeframe, from, to).all<Candle>()
+
+    const meta = await c.env.DB.prepare(`
+      SELECT from_ts, to_ts, count, last_fetch, source FROM candle_meta
+      WHERE symbol=? AND timeframe=?
+    `).bind(symbol, timeframe).first()
+
+    return c.json({ ok: true, data: rows.results || [], meta: meta || null, count: rows.results?.length || 0 })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e), data: [] }, 500)
+  }
+})
+
+// ─── 캔들 데이터 fetch & 캐싱 ───────────────────────────────
+// POST /api/candles/fetch
+// body: { source:'twelvedata'|'stooq', apiKey?, symbol, timeframe, from, to }
+app.post('/api/candles/fetch', async (c) => {
+  try {
+    const body = await c.req.json() as {
+      source: 'twelvedata' | 'stooq'
+      apiKey?: string
+      symbol?: string       // 'XAUUSD'
+      timeframe?: string    // 'M1','M5','H1','D1'
+      from: number          // epoch seconds (UTC)
+      to: number
+    }
+    const symbol    = (body.symbol || 'XAUUSD').toUpperCase()
+    const timeframe = (body.timeframe || 'M1').toUpperCase()
+    const from = body.from, to = body.to
+    if (!from || !to || to <= from) {
+      return c.json({ ok: false, error: 'invalid from/to' }, 400)
+    }
+
+    let candles: Candle[] = []
+    let source = body.source
+
+    if (body.source === 'twelvedata') {
+      if (!body.apiKey) return c.json({ ok: false, error: 'apiKey required for twelvedata' }, 400)
+      const tfMap: Record<string, string> = { M1: '1min', M5: '5min', M15: '15min', H1: '1h', D1: '1day' }
+      const interval = tfMap[timeframe] || '1min'
+      // Twelve Data는 한 요청당 5000봉 제한 → 청크 분할
+      // M1: 5000분 = 약 3.47일치
+      const chunkSec: Record<string, number> = { M1: 3 * 86400, M5: 14 * 86400, M15: 40 * 86400, H1: 200 * 86400, D1: 5000 * 86400 }
+      const step = chunkSec[timeframe] || 3 * 86400
+      let cursor = from
+      let chunks = 0
+      const maxChunks = 50  // 무료 플랜 보호 (1분당 8회)
+      while (cursor < to && chunks < maxChunks) {
+        const chunkTo = Math.min(cursor + step, to)
+        const startISO = new Date(cursor * 1000).toISOString().slice(0, 19).replace('T', ' ')
+        const endISO   = new Date(chunkTo * 1000).toISOString().slice(0, 19).replace('T', ' ')
+        const batch = await fetchTwelveData(body.apiKey, 'XAU/USD', interval, startISO, endISO, 5000)
+        candles.push(...batch)
+        cursor = chunkTo
+        chunks++
+        // rate limit 보호 (1분당 8회 → 약 8초 간격)
+        if (chunks < maxChunks && cursor < to) await new Promise(r => setTimeout(r, 250))
+      }
+    } else if (body.source === 'stooq') {
+      // Stooq는 일봉만 안정적
+      const sym = symbol === 'XAUUSD' ? 'xauusd' : symbol.toLowerCase()
+      const all = await fetchStooqOHLC(sym, 'd')
+      candles = all.filter(k => k.ts >= from && k.ts <= to)
+    } else {
+      return c.json({ ok: false, error: 'unsupported source' }, 400)
+    }
+
+    if (!candles.length) {
+      return c.json({ ok: true, inserted: 0, message: 'no candles returned', source })
+    }
+
+    // 중복 제거
+    const map = new Map<number, Candle>()
+    candles.forEach(k => map.set(k.ts, k))
+    const unique = Array.from(map.values()).sort((a, b) => a.ts - b.ts)
+
+    // D1에 BATCH INSERT (1000개씩 청크)
+    let inserted = 0
+    const CHUNK = 80  // D1 statement parameter limit (~100)
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const part = unique.slice(i, i + CHUNK)
+      const placeholders = part.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
+      const values: (string | number)[] = []
+      part.forEach(k => {
+        values.push(symbol, timeframe, k.ts, k.o, k.h, k.l, k.c, k.v || 0, source)
+      })
+      await c.env.DB.prepare(`
+        INSERT OR REPLACE INTO candles
+          (symbol, timeframe, ts_utc, open, high, low, close, volume, source)
+        VALUES ${placeholders}
+      `).bind(...values).run()
+      inserted += part.length
+    }
+
+    // meta 업데이트
+    const first = unique[0].ts, last = unique[unique.length - 1].ts
+    await c.env.DB.prepare(`
+      INSERT INTO candle_meta (symbol, timeframe, from_ts, to_ts, count, last_fetch, source)
+      VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(symbol, timeframe) DO UPDATE SET
+        from_ts    = MIN(from_ts, excluded.from_ts),
+        to_ts      = MAX(to_ts,   excluded.to_ts),
+        count      = count + excluded.count,
+        last_fetch = excluded.last_fetch,
+        source     = excluded.source
+    `).bind(symbol, timeframe, first, last, inserted, Math.floor(Date.now() / 1000), source).run()
+
+    return c.json({ ok: true, inserted, from: first, to: last, source })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
+// ─── 캔들 데이터 업로드 (CSV) ───────────────────────────────
+// POST /api/candles/upload  body: { symbol, timeframe, candles: [{ts,o,h,l,c,v}] }
+app.post('/api/candles/upload', async (c) => {
+  try {
+    const body = await c.req.json() as {
+      symbol?: string
+      timeframe?: string
+      candles: Array<{ ts: number; o: number; h: number; l: number; c: number; v?: number }>
+    }
+    const symbol    = (body.symbol || 'XAUUSD').toUpperCase()
+    const timeframe = (body.timeframe || 'M1').toUpperCase()
+    const all = (body.candles || []).filter(k => k.ts && !isNaN(k.o)).sort((a, b) => a.ts - b.ts)
+    if (!all.length) return c.json({ ok: false, error: 'no candles' }, 400)
+
+    let inserted = 0
+    const CHUNK = 80
+    for (let i = 0; i < all.length; i += CHUNK) {
+      const part = all.slice(i, i + CHUNK)
+      const placeholders = part.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
+      const values: (string | number)[] = []
+      part.forEach(k => {
+        values.push(symbol, timeframe, k.ts, k.o, k.h, k.l, k.c, k.v || 0, 'upload')
+      })
+      await c.env.DB.prepare(`
+        INSERT OR REPLACE INTO candles
+          (symbol, timeframe, ts_utc, open, high, low, close, volume, source)
+        VALUES ${placeholders}
+      `).bind(...values).run()
+      inserted += part.length
+    }
+    const first = all[0].ts, last = all[all.length - 1].ts
+    await c.env.DB.prepare(`
+      INSERT INTO candle_meta (symbol, timeframe, from_ts, to_ts, count, last_fetch, source)
+      VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(symbol, timeframe) DO UPDATE SET
+        from_ts    = MIN(from_ts, excluded.from_ts),
+        to_ts      = MAX(to_ts,   excluded.to_ts),
+        count      = count + excluded.count,
+        last_fetch = excluded.last_fetch,
+        source     = 'upload'
+    `).bind(symbol, timeframe, first, last, inserted, Math.floor(Date.now() / 1000), 'upload').run()
+
+    return c.json({ ok: true, inserted, from: first, to: last })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
+// ─── 캔들 데이터 삭제 (관리용) ───────────────────────────────
+app.delete('/api/candles', async (c) => {
+  const url = new URL(c.req.url)
+  const symbol    = (url.searchParams.get('symbol') || 'XAUUSD').toUpperCase()
+  const timeframe = url.searchParams.get('tf')?.toUpperCase()
+  try {
+    if (timeframe) {
+      await c.env.DB.prepare(`DELETE FROM candles WHERE symbol=? AND timeframe=?`).bind(symbol, timeframe).run()
+      await c.env.DB.prepare(`DELETE FROM candle_meta WHERE symbol=? AND timeframe=?`).bind(symbol, timeframe).run()
+    } else {
+      await c.env.DB.prepare(`DELETE FROM candles WHERE symbol=?`).bind(symbol).run()
+      await c.env.DB.prepare(`DELETE FROM candle_meta WHERE symbol=?`).bind(symbol).run()
+    }
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
 // ─── Static asset fallback (Cloudflare Pages ASSETS) ──────────
 // API 라우트에 매칭되지 않는 모든 요청은 Pages 정적 파일로 전달
 app.all('*', async (c) => {
