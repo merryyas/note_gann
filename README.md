@@ -34,9 +34,23 @@
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/api/candles?symbol=XAUUSD&tf=M1&from=...&to=...` | 캐시된 OHLC 캔들 조회 |
-| POST | `/api/candles/fetch` | 외부 API에서 캔들 가져와 D1에 캐싱 (Twelve Data / Stooq) |
+| POST | `/api/candles/plan` | 기간을 청크로 분할 (skipCached로 이미 받은 구간 제외 → 재개 지원) |
+| POST | `/api/candles/fetch` | 외부 API에서 청크 1개 가져와 D1에 캐싱 (Twelve Data / Stooq) |
 | POST | `/api/candles/upload` | CSV 파싱 결과를 직접 업로드 |
 | DELETE | `/api/candles?symbol=XAUUSD&tf=M1` | 캐시 삭제 |
+
+### Twelve Data 수집 최적화 (2026-06-13)
+무료 플랜(분당 8 credit / 일일 800 credit)에 맞춰 클라이언트가 수집을 제어:
+- **적응형 페이싱**: 마지막 호출 시각 기준 정확히 **7.6초 간격** 유지 (호출 자체 소요시간 차감 → 실제 더 빠름)
+- **서버측 대기 제거**: `fetchTwelveData`는 더 이상 서버 안에서 backoff 하지 않음 (Workers CPU 제한 회피). 429는 `{code:429, retryable:true}`로 즉시 클라이언트에 전달
+- **빈 청크 빠른 스킵**: 주말/장마감 등 0봉 응답(`empty:true`)이면 대기 1.2초로 단축
+- **429 자동 재시도**: 청크당 최대 3회 backoff(12초) 재시도, 그래도 실패 시 재시도 큐로
+- **실패 큐 2차 패스**: 1차 루프 종료 후 실패 청크만 한 바퀴 더 자동 재시도
+- **localStorage**: API 키 자동 저장/복원, 일일 호출 카운터(UTC 자정 리셋) 추적/경고
+- **이어받기**: 중단/새로고침 후 같은 기간을 다시 받기 → `skipCached`로 이미 받은 구간 자동 제외
+
+**소요 시간 가이드(M1)**: 1년 ≈ 122청크 ≈ 약 15분, 3개월 ≈ 4분. (빈 구간 스킵으로 실측은 더 짧음)
+**3년치 수집 팁**: 1년 단위로 나눠 받으면 일일 800회 한도 안에서 안전. 한도 초과 시 다음날 같은 기간을 다시 누르면 이어받음.
 
 ## EA 백테스트 시뮬레이터 (strategy.html)
 **AUTO LOGIC 3 EA를 1분봉 OHLC 차트 데이터로 재현**

@@ -172,6 +172,60 @@ function fmtETA(sec) {
   return s > 0 ? `약 ${m}분 ${s}초` : `약 ${m}분`;
 }
 
+// ── Twelve Data 무료 플랜 상수 ───────────────────────────────
+//    분당 8 credit, 일일 800 credit. time_series 1회 = 1 credit.
+//    안전 간격: 60s / 8 = 7.5s. 약간 여유 둬서 7.6s.
+const TD_FREE = {
+  RATE_MS: 7600,        // 정상 호출 간 최소 간격
+  EMPTY_MS: 1200,       // 빈 청크(주말/장마감) 후 짧은 대기
+  MAX_RETRY: 3,         // 청크당 429 즉시 재시도 횟수
+  RETRY_BACKOFF_MS: 12000, // 429 재시도 대기
+  DAILY_LIMIT: 800
+};
+
+// ── 일일 호출 카운터 (localStorage, UTC 기준 자정 리셋) ──────
+function _tdUsageKey() {
+  return 'td_usage_' + new Date().toISOString().slice(0, 10);
+}
+function tdGetUsage() {
+  try { return parseInt(localStorage.getItem(_tdUsageKey()) || '0', 10) || 0; }
+  catch { return 0; }
+}
+function tdBumpUsage(n) {
+  try {
+    const v = tdGetUsage() + (n || 1);
+    localStorage.setItem(_tdUsageKey(), String(v));
+    // 오래된 카운터 정리
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('td_usage_') && k !== _tdUsageKey()) {
+        try { localStorage.removeItem(k); i--; } catch {}
+      }
+    }
+    return v;
+  } catch { return 0; }
+}
+
+// ── API 키 저장/복원 (localStorage) ─────────────────────────
+function tdSaveApiKey(key) {
+  try { if (key) localStorage.setItem('td_api_key', key); } catch {}
+}
+function tdLoadApiKey() {
+  try { return localStorage.getItem('td_api_key') || ''; } catch { return ''; }
+}
+// 페이지 로드 시 저장된 키 복원
+function restoreApiKey() {
+  const el = document.getElementById('paramApiKey');
+  if (el && !el.value) {
+    const saved = tdLoadApiKey();
+    if (saved) el.value = saved;
+  }
+}
+window.restoreApiKey = restoreApiKey;
+document.addEventListener('DOMContentLoaded', restoreApiKey);
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function fetchCandles() {
   const btn = document.getElementById('btnFetch');
   const src = document.getElementById('paramSource').value;
@@ -196,6 +250,7 @@ async function fetchCandles() {
       setDataStatus('Twelve Data API 키를 입력하세요 (twelvedata.com 무료)', 'err');
       return;
     }
+    tdSaveApiKey(apiKey);   // 브라우저에 저장 → 다음 방문 시 자동 복원
   }
 
   // Stooq는 일봉(D1)만 지원 — 단일 호출이면 됨
@@ -221,13 +276,13 @@ async function fetchCandles() {
     return;
   }
 
-  // ── Twelve Data: 청크 분할 + 클라이언트 페이싱 ───────────────
+  // ── Twelve Data: 적응형 페이싱 + 빈청크 스킵 + 재시도 큐 ──────
   btn.disabled = true;
   _fetchAbort = false;
   setDataStatus('<i class="fas fa-spinner fa-spin"></i> 청크 계획 수립 중…', 'warn');
 
   try {
-    // 1) plan 호출
+    // 1) plan 호출 (이미 캐시된 구간은 skipCached로 제외 → 재개 자동 지원)
     const planRes = await fetch('/api/candles/plan', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -244,86 +299,43 @@ async function fetchCandles() {
       return;
     }
 
-    // 2) 예상 시간 안내 (Twelve Data 분당 8회 제한 → 청크 사이 8초 대기)
-    const INTERVAL_MS = 8000;            // 청크 간 대기
-    const PER_CALL_SEC = 12;             // 호출 자체 + 대기 = 약 12초 예상
-    const etaSec = chunks.length * PER_CALL_SEC;
+    // 2) 일일 한도 확인 + 예상 시간 안내
+    const usedToday = tdGetUsage();
+    const remainToday = TD_FREE.DAILY_LIMIT - usedToday;
+    // 정상 청크는 7.6s, 빈 청크는 1.2s → 평균적으로 그 사이. 보수적으로 7.6s 가정.
+    const etaSec = Math.round((chunks.length - 1) * (TD_FREE.RATE_MS / 1000) + chunks.length * 1.0);
 
-    if (chunks.length > 5) {
+    if (chunks.length > remainToday) {
+      const cont = confirm(
+        `⚠️ 오늘 남은 호출 한도가 부족할 수 있습니다.\n` +
+        `필요 청크: ${chunks.length}개 · 오늘 사용: ${usedToday}/${TD_FREE.DAILY_LIMIT}회 (남음 ${remainToday})\n\n` +
+        `받을 수 있는 만큼 받고, 나머지는 내일(UTC 자정 리셋) 같은 기간으로 다시 누르면 이어서 받습니다.\n진행할까요?`
+      );
+      if (!cont) { setDataStatus('취소되었습니다', 'warn'); btn.disabled = false; return; }
+    } else if (chunks.length > 5) {
       const ok = confirm(
-        `⚠️ ${chunks.length}개 청크로 분할 다운로드합니다.\n` +
-        `Twelve Data 무료 플랜(분당 8회) 제한으로 청크 사이 8초 대기합니다.\n` +
-        `예상 소요 시간: ${fmtETA(etaSec)}\n\n` +
-        `진행하시겠습니까?\n(중간에 [중단] 버튼으로 멈춰도 받은 데이터는 보존됩니다)`
+        `📥 ${chunks.length}개 청크로 분할 다운로드합니다.\n` +
+        `Twelve Data 무료 플랜(분당 8회) 기준 청크 사이 약 7.6초 간격.\n` +
+        `예상 소요: ${fmtETA(etaSec)} (빈 구간은 빠르게 건너뜀)\n` +
+        `오늘 사용: ${usedToday}/${TD_FREE.DAILY_LIMIT}회\n\n` +
+        `진행하시겠습니까?\n(중간 [중단] 가능 · 받은 데이터는 보존되고 다시 누르면 이어받음)`
       );
       if (!ok) { setDataStatus('취소되었습니다', 'warn'); btn.disabled = false; return; }
     }
 
-    // 3) 청크별 반복 호출
-    let totalInserted = 0;
-    let failed = 0;
-    const startedAt = Date.now();
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (_fetchAbort) {
-        setDataStatus(`⏸️ 중단됨 · ${i}/${chunks.length}청크 완료 · 누적 ${totalInserted.toLocaleString()}봉`, 'warn');
-        break;
-      }
-
-      const ck = chunks[i];
-      const elapsed = (Date.now() - startedAt) / 1000;
-      const remain = Math.max(0, (chunks.length - i) * PER_CALL_SEC - 0);
-      const pct = Math.round((i / chunks.length) * 100);
-      setDataStatus(
-        `<div style="display:flex;flex-direction:column;gap:6px">
-          <div><i class="fas fa-spinner fa-spin"></i> ${i+1}/${chunks.length} 청크 다운로드 중 · 남은 시간 ${fmtETA(remain)}</div>
-          <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">
-            <div style="background:linear-gradient(90deg,#fbbf24,#f59e0b);height:100%;width:${pct}%;transition:width .3s"></div>
-          </div>
-          <div style="font-size:11px;opacity:.7">누적 ${totalInserted.toLocaleString()}봉 · 실패 ${failed} · <button onclick="abortFetch()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fca5a5;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">중단</button></div>
-        </div>`,
-        'warn'
-      );
-
-      try {
-        const res = await fetch('/api/candles/fetch', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({
-            source: 'twelvedata',
-            apiKey,
-            symbol: 'XAUUSD',
-            timeframe: tf,
-            from: ck.from,
-            to: ck.to
-          })
-        });
-        const json = await res.json();
-        if (!json.ok) {
-          failed++;
-          console.warn(`청크 ${i+1} 실패:`, json.error);
-        } else {
-          totalInserted += (json.inserted || 0);
-        }
-      } catch (e) {
-        failed++;
-        console.warn(`청크 ${i+1} 네트워크 실패:`, e);
-      }
-
-      // 마지막 청크가 아니면 대기 (분당 8회 제한)
-      if (i < chunks.length - 1 && !_fetchAbort) {
-        await new Promise(r => setTimeout(r, INTERVAL_MS));
-      }
-    }
+    // 3) 다운로드 엔진 실행
+    const result = await runFetchEngine(chunks, { apiKey, tf });
 
     // 4) 캐시에서 다시 로드
     await checkExistingData();
     if (!_fetchAbort) {
       const cnt = CANDLES.length.toLocaleString();
-      if (failed > 0) {
-        setDataStatus(`⚠️ 완료 · ${totalInserted.toLocaleString()}봉 저장 · 실패 ${failed}청크 · 로드 ${cnt}봉`, 'warn');
+      if (result.failed.length > 0) {
+        setDataStatus(
+          `⚠️ 완료 · ${result.inserted.toLocaleString()}봉 저장 · 실패 ${result.failed.length}청크 ` +
+          `(잠시 후 [차트 데이터 받기]를 다시 누르면 실패분만 재시도) · 로드 ${cnt}봉`, 'warn');
       } else {
-        setDataStatus(`✅ 완료 · ${totalInserted.toLocaleString()}봉 저장 · 로드 ${cnt}봉`, 'ok');
+        setDataStatus(`✅ 완료 · ${result.inserted.toLocaleString()}봉 저장 · 로드 ${cnt}봉`, 'ok');
       }
     }
   } catch (e) {
@@ -333,6 +345,119 @@ async function fetchCandles() {
     _fetchAbort = false;
   }
 }
+
+// ── 다운로드 엔진: 적응형 페이싱 + 빈청크 스킵 + 429 재시도 + 실패 큐 ──
+// chunks: [{from,to,...}], opts: { apiKey, tf }
+// 반환: { inserted, failed: [chunk...] }
+async function runFetchEngine(chunks, opts) {
+  const { apiKey, tf } = opts;
+  let totalInserted = 0;
+  const failedQueue = [];
+  const startedAt = Date.now();
+  let lastCallAt = 0;        // 마지막 실제 호출 시각 (적응형 페이싱용)
+  let done = 0;
+
+  // 단일 청크 호출 (429 즉시 재시도 포함). 반환: {ok, empty, inserted, retryable}
+  async function callChunk(ck) {
+    for (let retry = 0; retry <= TD_FREE.MAX_RETRY; retry++) {
+      if (_fetchAbort) return { ok: false, aborted: true };
+      // 적응형 페이싱: 마지막 호출 이후 RATE_MS 만큼 지났는지 확인
+      const since = Date.now() - lastCallAt;
+      if (lastCallAt && since < TD_FREE.RATE_MS) {
+        await sleep(TD_FREE.RATE_MS - since);
+      }
+      if (_fetchAbort) return { ok: false, aborted: true };
+
+      lastCallAt = Date.now();
+      let res, json;
+      try {
+        res = await fetch('/api/candles/fetch', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ source:'twelvedata', apiKey, symbol:'XAUUSD', timeframe: tf, from: ck.from, to: ck.to })
+        });
+        json = await res.json();
+      } catch (e) {
+        // 네트워크 오류 → 짧게 쉬고 재시도
+        if (retry < TD_FREE.MAX_RETRY) { await sleep(4000); continue; }
+        return { ok: false, retryable: true, error: String(e) };
+      }
+      tdBumpUsage(1);   // credit 1 소비 (성공/빈청크 모두 카운트)
+
+      if (res.status === 429 || json.code === 429) {
+        // rate limit → backoff 후 재시도
+        if (retry < TD_FREE.MAX_RETRY) {
+          setDataStatus(`<i class="fas fa-hourglass-half"></i> 429 rate limit · ${TD_FREE.RETRY_BACKOFF_MS/1000}초 후 재시도 (${retry+1}/${TD_FREE.MAX_RETRY})`, 'warn');
+          await sleep(TD_FREE.RETRY_BACKOFF_MS);
+          continue;
+        }
+        return { ok: false, retryable: true, error: 'rate_limit' };
+      }
+      if (!json.ok) {
+        return { ok: false, retryable: !!json.retryable, error: json.error };
+      }
+      return { ok: true, empty: !!json.empty, inserted: json.inserted || 0 };
+    }
+    return { ok: false, retryable: true, error: 'max retry' };
+  }
+
+  function renderProgress(phase, idx, total, extra) {
+    if (_fetchAbort) return;
+    const pct = total ? Math.round((idx / total) * 100) : 0;
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const rate = idx > 0 ? elapsed / idx : (TD_FREE.RATE_MS/1000);
+    const remain = Math.max(0, (total - idx) * rate);
+    const used = tdGetUsage();
+    setDataStatus(
+      `<div style="display:flex;flex-direction:column;gap:6px">
+        <div><i class="fas fa-spinner fa-spin"></i> ${phase} ${idx}/${total} · 남은 시간 ${fmtETA(remain)}</div>
+        <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">
+          <div style="background:linear-gradient(90deg,#fbbf24,#f59e0b);height:100%;width:${pct}%;transition:width .3s"></div>
+        </div>
+        <div style="font-size:11px;opacity:.7">누적 ${totalInserted.toLocaleString()}봉 · 오늘 ${used}/${TD_FREE.DAILY_LIMIT}회${extra||''} · <button onclick="abortFetch()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fca5a5;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">중단</button></div>
+      </div>`, 'warn');
+  }
+
+  // 1차 패스
+  for (let i = 0; i < chunks.length; i++) {
+    if (_fetchAbort) break;
+    done++;
+    renderProgress('청크', done, chunks.length);
+    const r = await callChunk(chunks[i]);
+    if (r.aborted) break;
+    if (r.ok) {
+      totalInserted += r.inserted;
+      // 빈 청크면 다음 호출까지 짧게만 쉬도록 lastCallAt 보정
+      if (r.empty) lastCallAt = Date.now() - (TD_FREE.RATE_MS - TD_FREE.EMPTY_MS);
+    } else if (r.retryable) {
+      failedQueue.push(chunks[i]);
+    } else {
+      // 비재시도 오류(키 오류 등) → 즉시 중단
+      throw new Error(r.error || 'fetch 실패');
+    }
+  }
+
+  // 2차 패스: 실패 큐만 한 번 더 (중단 안 했을 때만)
+  const stillFailed = [];
+  if (!_fetchAbort && failedQueue.length) {
+    for (let i = 0; i < failedQueue.length; i++) {
+      if (_fetchAbort) { stillFailed.push(...failedQueue.slice(i)); break; }
+      renderProgress('재시도', i + 1, failedQueue.length, ' · 실패분 재시도 중');
+      const r = await callChunk(failedQueue[i]);
+      if (r.aborted) { stillFailed.push(...failedQueue.slice(i)); break; }
+      if (r.ok) { totalInserted += r.inserted; }
+      else { stillFailed.push(failedQueue[i]); }
+    }
+  } else {
+    stillFailed.push(...failedQueue);
+  }
+
+  if (_fetchAbort) {
+    setDataStatus(`⏸️ 중단됨 · ${done}/${chunks.length}청크 처리 · 누적 ${totalInserted.toLocaleString()}봉 (보존됨)`, 'warn');
+  }
+  return { inserted: totalInserted, failed: stillFailed };
+}
+window.runFetchEngine = runFetchEngine;
 
 // ── CSV 파싱 유틸 ────────────────────────────────────────────
 // 다양한 포맷 자동 감지: Dukascopy/HistData/MT4/Generic

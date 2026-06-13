@@ -557,49 +557,35 @@ async function fetchTwelveData(
   url.searchParams.set('timezone', 'UTC')
   url.searchParams.set('apikey', apiKey)
 
-  // 최대 3회 재시도 (429 발생 시 지수 백오프)
-  let attempt = 0
-  let lastErr: unknown = null
-  while (attempt < 3) {
-    try {
-      const res = await fetch(url.toString())
-      if (res.status === 429) {
-        const wait = 9000 + attempt * 6000   // 9s → 15s → 21s
-        await new Promise(r => setTimeout(r, wait))
-        attempt++
-        continue
-      }
-      if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`)
-      const json = await res.json() as {
-        status?: string; code?: number; message?: string;
-        values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume?: string }>
-      }
-      // status:error 인 경우에도 code 429 → 재시도
-      if (json.status === 'error') {
-        if (json.code === 429 && attempt < 2) {
-          await new Promise(r => setTimeout(r, 9000 + attempt * 6000))
-          attempt++
-          continue
-        }
-        throw new Error(`TwelveData: ${json.message || 'unknown error'} (code ${json.code || '?'})`)
-      }
-      if (!Array.isArray(json.values)) return []
-      return json.values.map(v => ({
-        // 'YYYY-MM-DD HH:mm:ss' (UTC) → epoch seconds
-        ts: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
-        o: parseFloat(v.open),
-        h: parseFloat(v.high),
-        l: parseFloat(v.low),
-        c: parseFloat(v.close),
-        v: v.volume ? parseFloat(v.volume) : 0
-      })).filter(c => !isNaN(c.o) && !isNaN(c.c)).sort((a, b) => a.ts - b.ts)
-    } catch (e) {
-      lastErr = e
-      attempt++
-      if (attempt < 3) await new Promise(r => setTimeout(r, 5000))
-    }
+  // ⚠️ 서버 안에서 오래 대기하지 않는다 (Cloudflare Workers CPU 제한).
+  //    재시도/페이싱은 클라이언트가 전담. 429는 즉시 표면화하여
+  //    클라이언트가 backoff 후 같은 청크를 재시도하도록 한다.
+  const res = await fetch(url.toString())
+  if (res.status === 429) {
+    const err = new Error('TwelveData 429 rate limit') as Error & { code?: number }
+    err.code = 429
+    throw err
   }
-  throw lastErr instanceof Error ? lastErr : new Error('TwelveData fetch failed')
+  if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`)
+  const json = await res.json() as {
+    status?: string; code?: number; message?: string;
+    values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume?: string }>
+  }
+  if (json.status === 'error') {
+    const err = new Error(`TwelveData: ${json.message || 'unknown error'} (code ${json.code || '?'})`) as Error & { code?: number }
+    err.code = json.code
+    throw err
+  }
+  if (!Array.isArray(json.values)) return []
+  return json.values.map(v => ({
+    // 'YYYY-MM-DD HH:mm:ss' (UTC) → epoch seconds
+    ts: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
+    o: parseFloat(v.open),
+    h: parseFloat(v.high),
+    l: parseFloat(v.low),
+    c: parseFloat(v.close),
+    v: v.volume ? parseFloat(v.volume) : 0
+  })).filter(c => !isNaN(c.o) && !isNaN(c.c)).sort((a, b) => a.ts - b.ts)
 }
 
 // ─── Stooq XAUUSD 시간봉/일봉 (API 키 불필요, 백업용) ─────────
@@ -809,19 +795,26 @@ app.post('/api/candles/fetch', async (c) => {
     }
 
     if (!candles.length) {
-      return c.json({ ok: true, inserted: 0, message: 'no candles returned', source })
+      // 빈 청크(주말/장마감) — 클라이언트가 대기 없이 다음으로 넘어가도록 empty 플래그
+      return c.json({ ok: true, inserted: 0, empty: true, message: 'no candles returned', source })
     }
 
     const inserted = await saveCandlesToDb(c.env.DB, symbol, timeframe, candles, source)
     return c.json({
       ok: true,
       inserted,
+      empty: false,
       from: candles[0].ts,
       to: candles[candles.length-1].ts,
       source
     })
   } catch (e) {
-    return c.json({ ok: false, error: String(e) }, 500)
+    const code = (e as { code?: number })?.code
+    // 429(rate limit)는 클라이언트가 재시도할 수 있도록 명시적으로 전달
+    if (code === 429) {
+      return c.json({ ok: false, error: 'rate_limit', code: 429, retryable: true }, 429)
+    }
+    return c.json({ ok: false, error: String(e), retryable: true }, 500)
   }
 })
 
