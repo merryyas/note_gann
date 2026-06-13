@@ -2,16 +2,17 @@
    TradeArchive — Admin v7 (Tables API 기반)
    ============================================= */
 
-const ADMIN_PW_KEY = 'ta_adminPw';
-const SESSION_KEY  = 'ta_adminSession';
-const DEFAULT_PW   = 'admin1234';
+/* =============================================
+   관리자 인증 — 서버(Cloudflare D1) 기반
+   localStorage 완전 제거
+   ============================================= */
+const SESSION_KEY = 'ta_adminSession';  // sessionStorage만 — 탭 닫으면 자동 만료
 let adminTZ = 'server';
 
-function getStoredPw() { return localStorage.getItem(ADMIN_PW_KEY) || DEFAULT_PW; }
-function isLoggedIn()  { return sessionStorage.getItem(SESSION_KEY) === 'true'; }
-function setLoggedIn(v){ v ? sessionStorage.setItem(SESSION_KEY,'true') : sessionStorage.removeItem(SESSION_KEY); }
+function isLoggedIn()   { return sessionStorage.getItem(SESSION_KEY) === 'true'; }
+function setLoggedIn(v) { v ? sessionStorage.setItem(SESSION_KEY,'true') : sessionStorage.removeItem(SESSION_KEY); }
 
-// ===== 초기화 =====
+// ===== 초기화 — 로그인 상태면 바로 패널 표시 =====
 function initAdmin() {
   const overlay = document.getElementById('loginOverlay');
   const panel   = document.getElementById('adminPanel');
@@ -22,27 +23,150 @@ function initAdmin() {
   } else {
     overlay.style.display = 'flex';
     panel.style.display   = 'none';
+    checkSetupNeeded();  // 최초 설정 여부 확인
   }
+}
+
+// ===== 최초 설정 여부 확인 — 미설정이면 안내 표시 =====
+async function checkSetupNeeded() {
+  try {
+    const res  = await fetch('/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pw_hash: '' })
+    });
+    const json = await res.json();
+    if (json.needSetup) {
+      // 최초 설정 폼 표시
+      document.getElementById('loginForm').style.display     = 'none';
+      document.getElementById('setupForm').style.display     = 'block';
+      document.getElementById('forgotForm').style.display    = 'none';
+    }
+  } catch { /* 네트워크 오류 무시 */ }
 }
 
 // ===== 로그인 =====
 document.getElementById('loginBtn').addEventListener('click', tryLogin);
 document.getElementById('adminPassword').addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
 
-function tryLogin() {
+async function tryLogin() {
   const pw  = document.getElementById('adminPassword').value;
   const err = document.getElementById('loginError');
-  if (pw === getStoredPw()) {
-    setLoggedIn(true);
-    document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('adminPanel').style.display   = 'block';
-    loadUploadHistory();
-  } else {
-    err.textContent = '❌ 비밀번호가 올바르지 않습니다.';
-    document.getElementById('adminPassword').value = '';
-    setTimeout(() => { err.textContent = ''; }, 3000);
+  if (!pw) { err.textContent = '비밀번호를 입력해주세요.'; return; }
+
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+  try {
+    const hash = await sha256(pw);
+    const res  = await fetch('/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pw_hash: hash })
+    });
+    const json = await res.json();
+
+    if (json.needSetup) {
+      document.getElementById('loginForm').style.display  = 'none';
+      document.getElementById('setupForm').style.display  = 'block';
+    } else if (json.ok) {
+      setLoggedIn(true);
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('adminPanel').style.display   = 'block';
+      loadUploadHistory();
+    } else {
+      err.textContent = '❌ 비밀번호가 올바르지 않습니다.';
+      document.getElementById('adminPassword').value = '';
+      setTimeout(() => { err.textContent = ''; }, 3000);
+    }
+  } catch(e) {
+    err.textContent = '❌ 서버 오류. 잠시 후 다시 시도해주세요.';
   }
+  btn.disabled = false; btn.innerHTML = '<i class="fas fa-right-to-bracket"></i> 로그인';
 }
+
+// ===== 최초 설정 =====
+document.getElementById('setupBtn')?.addEventListener('click', async () => {
+  const pw1  = document.getElementById('setupPw1').value;
+  const pw2  = document.getElementById('setupPw2').value;
+  const sq   = document.getElementById('setupSecretQ').value.trim();
+  const sa   = document.getElementById('setupSecretA').value.trim();
+  const msg  = document.getElementById('setupMsg');
+
+  if (!pw1 || pw1.length < 6)    { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호는 6자 이상이어야 합니다.'; return; }
+  if (pw1 !== pw2)                { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호가 일치하지 않습니다.'; return; }
+  if (!sq)                        { msg.style.color='var(--red)'; msg.textContent='❌ 비밀 질문을 선택해주세요.'; return; }
+  if (!sa || sa.length < 2)       { msg.style.color='var(--red)'; msg.textContent='❌ 비밀 답변을 입력해주세요.'; return; }
+
+  const pw_hash     = await sha256(pw1);
+  const secret_hash = await sha256(sa.toLowerCase()); // 대소문자 무시
+
+  const res  = await fetch('/api/admin/setup', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pw_hash, secret_q: sq, secret_hash })
+  });
+  const json = await res.json();
+  if (json.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = '✅ 설정 완료! 이제 로그인할 수 있습니다.';
+    setTimeout(() => {
+      document.getElementById('setupForm').style.display  = 'none';
+      document.getElementById('loginForm').style.display  = 'block';
+      msg.textContent = '';
+    }, 1500);
+  } else {
+    msg.style.color='var(--red)'; msg.textContent='❌ ' + (json.error || '오류 발생');
+  }
+});
+
+// ===== 비밀번호 찾기 탭 전환 =====
+document.getElementById('forgotLink')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  // 비밀 질문 불러오기
+  const sq = await KV.get('admin:secret_q');
+  if (!sq) {
+    document.getElementById('loginError').textContent = '❌ 설정된 비밀 질문이 없습니다. 먼저 초기 설정을 완료하세요.';
+    return;
+  }
+  document.getElementById('forgotSecretQ').textContent = sq;
+  document.getElementById('loginForm').style.display   = 'none';
+  document.getElementById('forgotForm').style.display  = 'block';
+});
+document.getElementById('backToLoginLink')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('forgotForm').style.display  = 'none';
+  document.getElementById('loginForm').style.display   = 'block';
+});
+
+// ===== 비밀번호 재설정 =====
+document.getElementById('resetBtn')?.addEventListener('click', async () => {
+  const sa      = document.getElementById('resetSecretA').value.trim();
+  const newPw1  = document.getElementById('resetPw1').value;
+  const newPw2  = document.getElementById('resetPw2').value;
+  const msg     = document.getElementById('resetMsg');
+
+  if (!sa)                         { msg.style.color='var(--red)'; msg.textContent='❌ 비밀 답변을 입력해주세요.'; return; }
+  if (!newPw1 || newPw1.length < 6){ msg.style.color='var(--red)'; msg.textContent='❌ 새 비밀번호는 6자 이상이어야 합니다.'; return; }
+  if (newPw1 !== newPw2)           { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호가 일치하지 않습니다.'; return; }
+
+  const secret_hash = await sha256(sa.toLowerCase());
+  const new_pw_hash = await sha256(newPw1);
+
+  const res  = await fetch('/api/admin/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret_hash, new_pw_hash })
+  });
+  const json = await res.json();
+  if (json.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = '✅ 비밀번호가 재설정되었습니다!';
+    setTimeout(() => {
+      document.getElementById('forgotForm').style.display = 'none';
+      document.getElementById('loginForm').style.display  = 'block';
+      msg.textContent = '';
+    }, 1500);
+  } else {
+    msg.style.color='var(--red)'; msg.textContent='❌ 비밀 답변이 올바르지 않습니다.';
+  }
+});
 
 // ===== 로그아웃 =====
 document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -50,6 +174,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('adminPanel').style.display   = 'none';
   document.getElementById('adminPassword').value = '';
+  checkSetupNeeded();
 });
 
 // ===== 파일 업로드 =====
@@ -335,19 +460,43 @@ document.getElementById('clearAllBtn').addEventListener('click', () => {
   });
 });
 
-// ===== 비밀번호 변경 =====
-document.getElementById('changePwBtn').addEventListener('click', () => {
+// ===== 비밀번호 변경 — 서버 저장 =====
+document.getElementById('changePwBtn').addEventListener('click', async () => {
+  const pw0 = document.getElementById('currentPw').value;  // 현재 비밀번호 확인용
   const pw1 = document.getElementById('newPw1').value;
   const pw2 = document.getElementById('newPw2').value;
   const msg = document.getElementById('pwChangeMsg');
-  if (!pw1 || pw1.length < 6) { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호는 6자 이상이어야 합니다.'; return; }
-  if (pw1 !== pw2)             { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호가 일치하지 않습니다.'; return; }
-  localStorage.setItem(ADMIN_PW_KEY, pw1);
-  msg.style.color = 'var(--green)';
-  msg.textContent = '✅ 비밀번호가 변경되었습니다.';
-  document.getElementById('newPw1').value = '';
-  document.getElementById('newPw2').value = '';
-  setTimeout(() => { msg.textContent = ''; }, 5000);
+  if (!pw0)                        { msg.style.color='var(--red)'; msg.textContent='❌ 현재 비밀번호를 입력해주세요.'; return; }
+  if (!pw1 || pw1.length < 6)      { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호는 6자 이상이어야 합니다.'; return; }
+  if (pw1 !== pw2)                  { msg.style.color='var(--red)'; msg.textContent='❌ 비밀번호가 일치하지 않습니다.'; return; }
+
+  const current_hash = await sha256(pw0);
+  const new_hash     = await sha256(pw1);
+
+  // 현재 비밀번호 검증
+  const verifyRes = await fetch('/api/admin/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pw_hash: current_hash })
+  });
+  const verifyJson = await verifyRes.json();
+  if (!verifyJson.ok) { msg.style.color='var(--red)'; msg.textContent='❌ 현재 비밀번호가 올바르지 않습니다.'; return; }
+
+  // 새 비밀번호 저장
+  const res  = await fetch('/api/kv/admin:pw_hash', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: new_hash, pw_hash: current_hash })
+  });
+  const json = await res.json();
+  if (json.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = '✅ 비밀번호가 변경되었습니다.';
+    document.getElementById('currentPw').value = '';
+    document.getElementById('newPw1').value = '';
+    document.getElementById('newPw2').value = '';
+    setTimeout(() => { msg.textContent = ''; }, 5000);
+  } else {
+    msg.style.color='var(--red)'; msg.textContent='❌ 저장 실패: ' + (json.error || '오류');
+  }
 });
 
 // ===== 확인 모달 =====

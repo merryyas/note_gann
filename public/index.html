@@ -127,7 +127,27 @@
     }
     .nav-drawer a:hover { color: #ffffff !important; }
     .nav-drawer a.active { color: #f5c400 !important; }
-    /* hero-content 정중앙 정렬 */
+    /* hero-title: + 기호 인라인 배치로 시각 중심 = 페이지 중심 */
+    .hero-title {
+      display: flex !important;
+      align-items: baseline !important;
+      justify-content: center !important;
+      gap: 0 !important;
+    }
+    .hero-plus {
+      color: var(--yellow-lt, #ffd740);
+      font-size: 0.55em;
+      line-height: 1;
+      position: relative;
+      top: 0.08em;
+      margin-right: 0.05em;
+    }
+    /* gradient-text absolute 방식 비활성화 */
+    .hero-title .gradient-text {
+      position: static !important;
+      transform: none !important;
+      left: auto !important;
+    }
     .hero-content {
       margin-left: 0 !important;
       margin-right: 0 !important;
@@ -137,17 +157,11 @@
       justify-content: center !important;
       align-items: center !important;
       width: 100% !important;
-      margin-left: 0 !important;
-      margin-right: 0 !important;
     }
     .hero-stat {
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
-    }
-    .hero-divider {
-      margin-left: auto !important;
-      margin-right: auto !important;
     }
     .hero-sub {
       text-align: center !important;
@@ -193,10 +207,9 @@
   <div class="hero-content" style="margin-left:0 !important; transform:none !important;">
     <div class="hero-badge"><i class="fas fa-circle pulse-dot"></i> LIVE TRADING ARCHIVE</div>
 
-    <!-- 수익금: + 기호는 절대위치, 숫자만 중앙기준 -->
+    <!-- 수익금: + 기호 + 숫자 전체를 인라인으로 중앙정렬 -->
     <div class="hero-title" id="heroTotalProfit">
-      <span class="gradient-text" id="heroPlusSign">+</span>
-      <span class="num" id="heroNumValue">0$</span>
+      <span class="hero-plus" id="heroPlusSign">+</span><span class="num" id="heroNumValue">0$</span>
     </div>
     <div id="heroKrwValue" style="font-size:13px;letter-spacing:1px;color:rgba(255,255,255,0.45);margin-top:6px;font-family:'Inter',sans-serif;font-style:italic;">(+ 0₩)</div>
 
@@ -475,9 +488,19 @@
         const json = await res.json();
         if (!json.ok || !json.data.length) return;
         const html = buildItems(json.data);
-        // 무한 스크롤을 위해 동일 콘텐츠 2번 반복
-        track.innerHTML = html + html;
-        track.classList.add('running');
+        // 무한 스크롤: 아이템 1세트를 먼저 렌더해 실제 너비 측정 후
+        // 뷰포트 폭의 2배 이상이 될 때까지 반복 (최소 4세트)
+        track.innerHTML = html;
+        track.classList.remove('running');
+        // 다음 프레임에서 너비 측정
+        requestAnimationFrame(() => {
+          const setW  = track.scrollWidth;
+          const vpW   = window.innerWidth;
+          // 화면 너비의 2배 이상이 되려면 몇 세트가 필요한지 계산
+          const needed = Math.max(4, Math.ceil((vpW * 2) / setW) + 1);
+          track.innerHTML = html.repeat(needed);
+          track.classList.add('running');
+        });
       } catch(e) {
         track.innerHTML = '<span class="ticker-loading">시세 로드 실패</span>';
       }

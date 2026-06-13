@@ -7,17 +7,25 @@
   <link rel="stylesheet" href="css/style.v11.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <style>
-    .site-nav { position:fixed !important; top:0; left:0; right:0; z-index:1000; height:60px; display:flex !important; align-items:center !important; padding:0 40px; background:rgba(26,35,45,0.95); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,0.08); }
+    /* nav — 오버레이 위에도 항상 표시 (z-index 오버레이보다 높게) */
+    .site-nav { position:fixed !important; top:0; left:0; right:0; z-index:10001; height:60px; display:flex !important; align-items:center !important; padding:0 40px; background:rgba(26,35,45,0.95); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,0.08); }
     .nav-menu-btn { width:42px; height:32px; border:1px solid rgba(255,255,255,0.3) !important; border-radius:5px; background:transparent !important; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:center !important; justify-content:center !important; gap:5px; flex-shrink:0; }
     .nav-menu-btn span { display:block !important; width:16px; height:1.5px; background:#fff !important; border-radius:2px; }
     .nav-logo { position:absolute !important; left:50% !important; transform:translateX(-50%) !important; display:flex !important; align-items:center !important; gap:4px; font-family:'Bebas Neue',sans-serif; font-size:17px; letter-spacing:2px; color:#fff !important; text-decoration:none !important; }
     .nav-logo-dot { display:none; } .nav-logo-rocket { font-size:13px; color:#f5c400; flex-shrink:0; line-height:1; position:relative; top:-2px; }
     .nav-admin { margin-left:auto !important; font-size:10px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#f5c400 !important; border:1px solid rgba(245,196,0,0.5) !important; border-radius:5px; padding:7px 16px; background:transparent !important; text-decoration:none !important; }
-    .nav-drawer { position:fixed !important; top:60px; left:0; right:0; background:linear-gradient(to bottom, rgba(26,35,45,0.7) 0%, rgba(26,35,45,0) 100%) !important; backdrop-filter:none; border-bottom:none; z-index:999; display:grid !important; grid-template-columns:repeat(2,1fr) !important; grid-template-rows:repeat(3,1fr) !important; padding:6px 20px 6px; transform:translateY(-110%) !important; transition:transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s; visibility:hidden !important; pointer-events:none !important; }
+    .nav-drawer { position:fixed !important; top:60px; left:0; right:0; background:linear-gradient(to bottom, rgba(26,35,45,0.95) 0%, rgba(26,35,45,0.85) 100%) !important; backdrop-filter:blur(8px); border-bottom:1px solid rgba(255,255,255,0.06); z-index:10002; display:grid !important; grid-template-columns:repeat(2,1fr) !important; grid-template-rows:repeat(3,1fr) !important; padding:6px 20px 6px; transform:translateY(-110%) !important; transition:transform 0.28s cubic-bezier(0.4,0,0.2,1), visibility 0.28s; visibility:hidden !important; pointer-events:none !important; }
     .nav-drawer.open { transform:translateY(0) !important; visibility:visible !important; pointer-events:auto !important; }
     .nav-drawer a { display:flex !important; align-items:center; gap:10px; padding:10px 24px; align-self:center; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.6) !important; text-decoration:none !important; transition:color 0.15s; }
     .nav-drawer a:hover { color:#fff !important; }
     .nav-drawer a.active { color:#f5c400 !important; }
+    /* 로그인 오버레이 — nav 아래 */
+    .login-overlay { z-index:10000; padding-top:60px; }
+    /* 폼 전환 스타일 */
+    .auth-form { display:none; }
+    .auth-form.active { display:block; }
+    .auth-link { color:#f5c400; font-size:12px; text-decoration:none; cursor:pointer; background:none; border:none; padding:0; }
+    .auth-link:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
@@ -40,17 +48,87 @@
 <div id="loginOverlay" class="login-overlay">
   <div class="login-card">
     <div class="login-icon"><i class="fas fa-shield-halved"></i></div>
-    <h2>관리자 인증</h2>
-    <p>데이터 업로드 및 관리는 관리자만 가능합니다</p>
-    <form onsubmit="return false;">
-      <input type="text" name="username" value="admin" autocomplete="username" style="display:none;" />
-      <div class="input-group">
-        <i class="fas fa-key"></i>
-        <input type="password" id="adminPassword" placeholder="관리자 비밀번호" autocomplete="current-password" />
+
+    <!-- ① 로그인 폼 (기본 표시) -->
+    <div id="loginForm">
+      <h2>관리자 인증</h2>
+      <p>데이터 업로드 및 관리는 관리자만 가능합니다</p>
+      <form onsubmit="return false;">
+        <input type="text" name="username" value="admin" autocomplete="username" style="display:none;" />
+        <div class="input-group">
+          <i class="fas fa-key"></i>
+          <input type="password" id="adminPassword" placeholder="관리자 비밀번호" autocomplete="current-password" />
+        </div>
+        <button class="btn-login" id="loginBtn" type="submit"><i class="fas fa-right-to-bracket"></i> 로그인</button>
+        <p class="login-error" id="loginError"></p>
+      </form>
+      <div style="text-align:center;margin-top:12px;">
+        <button class="auth-link" id="forgotLink">비밀번호를 잊으셨나요?</button>
       </div>
-      <button class="btn-login" id="loginBtn" type="submit"><i class="fas fa-right-to-bracket"></i> 로그인</button>
-      <p class="login-error" id="loginError"></p>
-    </form>
+    </div>
+
+    <!-- ② 최초 설정 폼 -->
+    <div id="setupForm" style="display:none;">
+      <h2>관리자 초기 설정</h2>
+      <p>처음 사용하시는 경우 비밀번호와 비밀 질문을 설정해주세요</p>
+      <form onsubmit="return false;" style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
+        <div class="input-group">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="setupPw1" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" />
+        </div>
+        <div class="input-group">
+          <i class="fas fa-lock-open"></i>
+          <input type="password" id="setupPw2" placeholder="비밀번호 확인" autocomplete="new-password" />
+        </div>
+        <div class="input-group" style="position:relative;">
+          <i class="fas fa-circle-question"></i>
+          <select id="setupSecretQ" style="width:100%;padding:10px 12px 10px 36px;border:none;background:transparent;font-size:13px;color:var(--text);outline:none;appearance:none;">
+            <option value="">-- 비밀 질문 선택 --</option>
+            <option>첫 거래에서 수익을 낸 종목은?</option>
+            <option>처음 사용한 거래 플랫폼은?</option>
+            <option>트레이딩을 시작한 연도는?</option>
+            <option>가장 좋아하는 거래 시간대는?</option>
+            <option>기억에 남는 첫 손절 종목은?</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <i class="fas fa-pen"></i>
+          <input type="text" id="setupSecretA" placeholder="비밀 답변 (대소문자 무관)" autocomplete="off" />
+        </div>
+        <button class="btn-login" id="setupBtn" type="submit"><i class="fas fa-check"></i> 설정 완료</button>
+        <p id="setupMsg" style="font-size:12px;min-height:18px;text-align:center;"></p>
+      </form>
+    </div>
+
+    <!-- ③ 비밀번호 찾기 폼 -->
+    <div id="forgotForm" style="display:none;">
+      <h2>비밀번호 재설정</h2>
+      <p>비밀 답변을 입력하면 비밀번호를 재설정할 수 있습니다</p>
+      <div style="background:rgba(245,196,0,0.08);border:1px solid rgba(245,196,0,0.3);border-radius:8px;padding:12px 16px;margin:12px 0;font-size:13px;color:var(--text);">
+        <i class="fas fa-circle-question" style="color:#f5c400;margin-right:6px;"></i>
+        <span id="forgotSecretQ">비밀 질문 로딩 중...</span>
+      </div>
+      <form onsubmit="return false;" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="input-group">
+          <i class="fas fa-pen"></i>
+          <input type="text" id="resetSecretA" placeholder="비밀 답변" autocomplete="off" />
+        </div>
+        <div class="input-group">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="resetPw1" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" />
+        </div>
+        <div class="input-group">
+          <i class="fas fa-lock-open"></i>
+          <input type="password" id="resetPw2" placeholder="새 비밀번호 확인" autocomplete="new-password" />
+        </div>
+        <button class="btn-login" id="resetBtn" type="submit"><i class="fas fa-rotate"></i> 비밀번호 재설정</button>
+        <p id="resetMsg" style="font-size:12px;min-height:18px;text-align:center;"></p>
+      </form>
+      <div style="text-align:center;margin-top:12px;">
+        <button class="auth-link" id="backToLoginLink">← 로그인으로 돌아가기</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -180,6 +258,7 @@
       <div class="admin-card-header"><h2><i class="fas fa-key"></i> 관리자 비밀번호 변경</h2></div>
       <form class="pw-form" onsubmit="return false;">
         <input type="text" name="username" value="admin" autocomplete="username" style="display:none;" />
+        <div class="input-group"><i class="fas fa-key"></i><input type="password" id="currentPw" placeholder="현재 비밀번호" autocomplete="current-password" /></div>
         <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="newPw1" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" /></div>
         <div class="input-group"><i class="fas fa-lock-open"></i><input type="password" id="newPw2" placeholder="새 비밀번호 확인" autocomplete="new-password" /></div>
         <button class="btn-save-pw" id="changePwBtn" type="submit"><i class="fas fa-floppy-disk"></i> 변경 저장</button>

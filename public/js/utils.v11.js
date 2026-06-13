@@ -109,6 +109,44 @@ async function buildExistingKeySet() {
 window.BUILD_VERSION = '2026-06-01-v11-d1';
 console.log('%c334 TRADINGLOG build:', 'color:#f5c400', window.BUILD_VERSION);
 
+// ════════════════════════════════════════════════════════════════
+//  서버 KV 스토어 헬퍼 — localStorage 대신 Cloudflare D1 사용
+//  모든 영구 데이터는 /api/kv/:key 엔드포인트를 통해 서버에 저장
+// ════════════════════════════════════════════════════════════════
+const KV = {
+  /* 읽기 */
+  async get(key) {
+    try {
+      const res  = await fetch(`/api/kv/${encodeURIComponent(key)}`);
+      const json = await res.json();
+      return json.ok ? json.value : null;
+    } catch { return null; }
+  },
+
+  /* 쓰기 (pw_hash: 인증용 해시, 기본 null) */
+  async set(key, value, pw_hash = null) {
+    try {
+      const body = { value: String(value ?? '') };
+      if (pw_hash) body.pw_hash = pw_hash;
+      const res  = await fetch(`/api/kv/${encodeURIComponent(key)}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+      });
+      const json = await res.json();
+      return json.ok;
+    } catch { return false; }
+  },
+};
+
+// ════════════════════════════════════════════════════════════════
+//  SHA-256 해시 유틸
+// ════════════════════════════════════════════════════════════════
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
 // ===== 포맷 유틸 =====
 const fmt = {
   currency(v) {

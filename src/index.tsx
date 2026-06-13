@@ -292,12 +292,22 @@ app.post('/api/trades/batch', async (c) => {
 })
 
 // ════════════════════════════════════════════════════════════════
-//  KV STORE  — GET/PUT /api/kv/:key  (노트 자본금·코멘트 서버 저장)
+//  KV STORE  — GET /api/kv/:key  / PUT /api/kv/:key
+//  인증 불필요 키: capital, note:comment:*
+//  인증 필요 키:   admin:*, note:comment:* (PUT만)
 // ════════════════════════════════════════════════════════════════
-// D1 notes 테이블로 간단한 key-value 저장
+// 인증 불필요한 공개 읽기 키 목록
+const PUBLIC_READ_KEYS = ['capital']
+
+function kvKeyAllowed(key: string): boolean {
+  // 허용 패턴: capital, note:comment:*, admin:pw_hash, admin:secret_hash, admin:secret_q
+  return /^(capital|note:comment:[^/]+|admin:(pw_hash|secret_hash|secret_q))$/.test(key)
+}
+
 app.get('/api/kv/:key', async (c) => {
   try {
     const key = c.req.param('key')
+    if (!kvKeyAllowed(key)) return c.json({ ok: false, error: 'Forbidden key' }, 403)
     const row = await c.env.DB.prepare(
       `SELECT value FROM notes WHERE key = ? LIMIT 1`
     ).bind(key).first<{ value: string }>()
@@ -307,15 +317,25 @@ app.get('/api/kv/:key', async (c) => {
   }
 })
 
+// 공개 쓰기 허용 키 (capital, note:comment:*)는 인증 없이 PUT 가능
+// admin:* 키는 현재 pw_hash 검증 필요
 app.put('/api/kv/:key', async (c) => {
   try {
     const key  = c.req.param('key')
-    const body = await c.req.json() as { value: string; token?: string }
+    if (!kvKeyAllowed(key)) return c.json({ ok: false, error: 'Forbidden key' }, 403)
 
-    // 관리자 토큰 검증
-    const ADMIN_TOKEN = c.env.ADMIN_TOKEN as string | undefined
-    if (ADMIN_TOKEN && body.token !== ADMIN_TOKEN) {
-      return c.json({ ok: false, error: 'Unauthorized' }, 401)
+    const body = await c.req.json() as { value: string; pw_hash?: string }
+
+    // admin:* 키 쓰기는 현재 비밀번호 해시 검증 필요
+    if (key.startsWith('admin:')) {
+      const storedPw = await c.env.DB.prepare(
+        `SELECT value FROM notes WHERE key = 'admin:pw_hash' LIMIT 1`
+      ).first<{ value: string }>()
+
+      // 최초 설정이면 패스 (pw_hash 없음)
+      if (storedPw?.value && body.pw_hash !== storedPw.value) {
+        return c.json({ ok: false, error: 'Unauthorized' }, 401)
+      }
     }
 
     await c.env.DB.prepare(`
@@ -324,6 +344,74 @@ app.put('/api/kv/:key', async (c) => {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
     `).bind(key, String(body.value ?? ''), Date.now()).run()
 
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
+// ════════════════════════════════════════════════════════════════
+//  ADMIN AUTH  — POST /api/admin/login
+//               POST /api/admin/setup   (최초 설정)
+//               POST /api/admin/reset   (비밀 답변으로 재설정)
+// ════════════════════════════════════════════════════════════════
+app.post('/api/admin/login', async (c) => {
+  try {
+    const { pw_hash } = await c.req.json() as { pw_hash: string }
+    const stored = await c.env.DB.prepare(
+      `SELECT value FROM notes WHERE key = 'admin:pw_hash' LIMIT 1`
+    ).first<{ value: string }>()
+
+    if (!stored?.value) {
+      // 미설정 상태 → 설정 필요
+      return c.json({ ok: false, needSetup: true })
+    }
+    if (pw_hash !== stored.value) {
+      return c.json({ ok: false, error: 'Wrong password' }, 401)
+    }
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
+app.post('/api/admin/setup', async (c) => {
+  try {
+    const { pw_hash, secret_q, secret_hash } = await c.req.json() as {
+      pw_hash: string; secret_q: string; secret_hash: string
+    }
+    // 이미 설정됐는지 확인
+    const existing = await c.env.DB.prepare(
+      `SELECT value FROM notes WHERE key = 'admin:pw_hash' LIMIT 1`
+    ).first<{ value: string }>()
+    if (existing?.value) {
+      return c.json({ ok: false, error: 'Already configured. Use /api/admin/reset.' }, 409)
+    }
+    await c.env.DB.batch([
+      c.env.DB.prepare(`INSERT INTO notes (key,value,updated_at) VALUES ('admin:pw_hash',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(pw_hash, Date.now()),
+      c.env.DB.prepare(`INSERT INTO notes (key,value,updated_at) VALUES ('admin:secret_q',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(secret_q, Date.now()),
+      c.env.DB.prepare(`INSERT INTO notes (key,value,updated_at) VALUES ('admin:secret_hash',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(secret_hash, Date.now()),
+    ])
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500)
+  }
+})
+
+app.post('/api/admin/reset', async (c) => {
+  try {
+    const { secret_hash, new_pw_hash } = await c.req.json() as {
+      secret_hash: string; new_pw_hash: string
+    }
+    const stored = await c.env.DB.prepare(
+      `SELECT value FROM notes WHERE key = 'admin:secret_hash' LIMIT 1`
+    ).first<{ value: string }>()
+    if (!stored?.value || secret_hash !== stored.value) {
+      return c.json({ ok: false, error: 'Wrong answer' }, 401)
+    }
+    await c.env.DB.prepare(
+      `INSERT INTO notes (key,value,updated_at) VALUES ('admin:pw_hash',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`
+    ).bind(new_pw_hash, Date.now()).run()
     return c.json({ ok: true })
   } catch (e) {
     return c.json({ ok: false, error: String(e) }, 500)
