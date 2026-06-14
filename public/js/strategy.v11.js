@@ -687,7 +687,7 @@ function getParams() {
     cooldownSec : parseInt(document.getElementById('paramCooldown').value) || 0,
     slUsd       : parseFloat(document.getElementById('paramSlUsd').value) || 0,
     // 추가 안전장치
-    dailyMaxLoss : parseFloat(document.getElementById('paramDailyLoss').value) || 0,
+    dailyMaxLoss : 0,   // 일일손실한도(DDL) 제거 — 손절은 통합 손절금액(SL)으로만 관리
     doubling     : TOGGLES.doubling,
     doublingMode : document.getElementById('paramDoublingMode').value || 'add',
     doublingAmt  : parseFloat(document.getElementById('paramDoublingAdd').value) || 0.01,
@@ -985,17 +985,9 @@ function simulate(candles, p) {
         }
         if (liquidated) return true;
       }
-      // 일일 최대 손실
-      if (p.dailyMaxLoss > 0 && !dailyStopped) {
-        const unrl = basketStats(buyPos, price).pnl + basketStats(sellPos, price).pnl;
-        if (dailyPnl + unrl <= -p.dailyMaxLoss) {
-          if (buyPos.length)  closeBasket('buy',  price, ts, 'DDL');
-          if (liquidated) return true;
-          if (sellPos.length) closeBasket('sell', price, ts, 'DDL');
-          if (liquidated) return true;
-          dailyStopped = true;
-        }
-      }
+      // ── 일일손실한도(DDL)는 제거됨 ──
+      //   손절은 위의 "통합 손절금액(SL)" 하나로만 관리한다.
+      //   (실제 EA에 DDL이 없고, DDL이 SL보다 먼저 발동하면 SL이 무의미해지므로.)
       // 계좌 청산(파산) 체크
       const unr = basketStats(buyPos, price).pnl + basketStats(sellPos, price).pnl;
       return checkLiquidation(ts, unr);
@@ -1208,14 +1200,17 @@ async function runCaseCompare() {
     if (!filtered.length) throw new Error('선택 기간에 데이터 없음');
 
     // CASE 정의 (사용자 기본 외 3종)
+    //   ※ 손절은 "통합 손절금액(SL)" 하나로만 관리한다. (일일손실한도 DDL 제거)
+    //     실제 EA에는 DDL 기능이 없고, DDL이 SL보다 먼저 발동하면 SL 설정이
+    //     무의미해지기 때문. 손절 강도는 SL 금액만으로 차등화한다.
     const cases = [
       { id:'base', name:'기본 (사용자 설정)', tag:'base', params: { ...base } },
       { id:'cons', name:'CASE 1 - 보수적', tag:'cons',
-        params: { ...base, tpPoints:500, lotMult:1.3, interval:500, slUsd:200, dailyMaxLoss:50 } },
+        params: { ...base, tpPoints:500, lotMult:1.3, interval:500, slUsd:50,  dailyMaxLoss:0 } },
       { id:'mid',  name:'CASE 2 - 중도적', tag:'mid',
-        params: { ...base, tpPoints:300, lotMult:1.5, interval:300, slUsd:500, dailyMaxLoss:100 } },
+        params: { ...base, tpPoints:300, lotMult:1.5, interval:300, slUsd:100, dailyMaxLoss:0 } },
       { id:'agg',  name:'CASE 3 - 공격적 (실제 EA)', tag:'agg',
-        params: { ...base, tpPoints:300, lotMult:1.5, interval:300, slUsd:0, dailyMaxLoss:0, maxOrders:99 } }
+        params: { ...base, tpPoints:300, lotMult:1.5, interval:300, slUsd:0,   dailyMaxLoss:0, maxOrders:99 } }
     ];
 
     const results = [];
@@ -1303,7 +1298,7 @@ function renderSingleResult(r, p) {
   setKpi('kcPF', r.profitFactor.toString(), r.profitFactor >= 1.5 ? 'g' : (r.profitFactor >= 1 ? 'y' : 'r'));
   setKpi('kcMDD', '-$' + r.maxDD.toLocaleString(), 'r');
   setKpi('kcMDDSub', '-' + r.maxDDPct + '%');
-  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL' || b.reason === 'DDL').length.toString(), 'r');
+  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL').length.toString(), 'r');
   setKpi('kcSLSub', r.liquidated ? '⚠️ 계좌청산' : '정상');
   setKpi('kcMaxPos', r.maxConcurrent.toString(), r.maxConcurrent <= 5 ? 'g' : (r.maxConcurrent <= 15 ? 'y' : 'r'));
   setKpi('kcMaxPosSub', `최대 진입 ${p.maxOrders}`);
@@ -1455,7 +1450,7 @@ function renderSingleResultKpiOnly(r, p, title) {
   setKpi('kcPF', r.profitFactor.toString(), r.profitFactor >= 1.5 ? 'g' : (r.profitFactor >= 1 ? 'y' : 'r'));
   setKpi('kcMDD', '-$' + r.maxDD.toLocaleString(), 'r');
   setKpi('kcMDDSub', '-' + r.maxDDPct + '%');
-  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL' || b.reason === 'DDL').length.toString(), 'r');
+  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL').length.toString(), 'r');
   setKpi('kcSLSub', r.liquidated ? '⚠️ 청산' : '정상');
   setKpi('kcMaxPos', r.maxConcurrent.toString(), 'y');
   setKpi('kcMaxPosSub', `최대 진입 ${p.maxOrders}`);
@@ -1483,9 +1478,7 @@ function renderCompareTable(results) {
               <td class="w">${c.name}</td>
               <td>TP${c.params.tpPoints} · ×${c.params.lotMult} · ${c.params.interval}pt</td>
               <td style="font-size:10px;">
-                ${c.params.slUsd>0?`SL$${c.params.slUsd} `:''}
-                ${c.params.dailyMaxLoss>0?`일일$${c.params.dailyMaxLoss}`:''}
-                ${c.params.slUsd===0 && c.params.dailyMaxLoss===0 ? '없음' : ''}
+                ${c.params.slUsd>0?`통합손절 $${c.params.slUsd}`:'손절 없음'}
               </td>
               <td class="${r.pnl>=0?'g':'r'}">${r.pnl>=0?'+':''}$${r.pnl.toLocaleString()}</td>
               <td class="${r.pnlPct>=0?'g':'r'}">${r.pnlPct>=0?'+':''}${r.pnlPct}%</td>
