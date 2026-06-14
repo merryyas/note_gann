@@ -851,6 +851,10 @@
           <button class="btn-sweep" id="btnSweep" onclick="runCaseCompare()">
             <i class="fas fa-th"></i> CASE 비교 (4종 한번에)
           </button>
+          <button class="btn-sweep" id="btnOptimize" onclick="runOptimize()" style="margin-top:8px;border-color:rgba(120,200,140,0.5);color:#7ec894;">
+            <i class="fas fa-magnifying-glass-chart"></i> 최적 세팅 찾기 (마진콜X + 수익)
+          </button>
+          <div class="sweep-hint" style="margin-top:6px;">로드된 기간 전체로 수백 개 조합을 자동 백테스트해<br>마진콜 없이 수익 나는 세팅을 랭킹합니다. (수십 초 소요)</div>
         </div>
       </aside>
 
@@ -944,6 +948,7 @@
             <button class="bt-tab active" onclick="switchTab('baskets')">바스켓 요약</button>
             <button class="bt-tab" onclick="switchTab('drill')">포지션 드릴다운</button>
             <button class="bt-tab" onclick="switchTab('sweep')">CASE 비교</button>
+            <button class="bt-tab" onclick="switchTab('optimize')">🔍 최적 세팅</button>
           </div>
 
           <!-- 바스켓 요약 -->
@@ -983,6 +988,16 @@
               </div>
             </div>
           </div>
+
+          <!-- 최적 세팅 찾기 결과 -->
+          <div class="tab-pane" id="tabOptimize">
+            <div id="optimizeContent">
+              <div class="empty-state">
+                <i class="fas fa-magnifying-glass-chart"></i>
+                <p>사이드바에서 <strong style="color:#7ec894;">최적 세팅 찾기</strong> 버튼을 클릭하면<br>로드된 기간 전체로 수백 개 조합을 자동 백테스트해<br><strong style="color:var(--text-primary);">마진콜 없이 수익 나는 세팅</strong>을 랭킹해 보여줍니다.</p>
+              </div>
+            </div>
+          </div>
         </div>
 
       </section>
@@ -1000,7 +1015,7 @@
 </footer>
 
 <script src="js/utils.v11.js"></script>
-<script src="js/strategy.v11.js?v=20260614-mddfix"></script>
+<script src="js/strategy.v11.js?v=20260614-optimize"></script>
 <script>
   /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');

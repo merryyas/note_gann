@@ -117,7 +117,7 @@ function getEnabledWeekdays() {
 // ── 탭 전환 ──────────────────────────────────────────────────
 function switchTab(name) {
   document.querySelectorAll('.bt-tab').forEach((t, i) => {
-    const panes = ['baskets', 'drill', 'sweep'];
+    const panes = ['baskets', 'drill', 'sweep', 'optimize'];
     t.classList.toggle('active', panes[i] === name);
   });
   document.querySelectorAll('.tab-pane').forEach(p => {
@@ -1707,8 +1707,170 @@ function showDrill(idx) {
   `;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  최적 세팅 찾기 (파라미터 스윕)
+//   로드된 기간 전체로 수백 개 조합을 자동 백테스트해
+//   "마진콜 없이(liquidated=false) + 수익(pnl>0)" 세팅만 추려 랭킹한다.
+// ══════════════════════════════════════════════════════════════
+const OPT_GRID = {
+  tpPoints:  [200, 300, 500],
+  lotMult:   [1.3, 1.5, 1.8],
+  interval:  [200, 300, 500],
+  slUsd:     [100, 300, 500, 1000, 2000],
+  maxOrders: [5, 8, 12]
+};
+
+function* optCombos() {
+  for (const tpPoints of OPT_GRID.tpPoints)
+  for (const lotMult of OPT_GRID.lotMult)
+  for (const interval of OPT_GRID.interval)
+  for (const slUsd of OPT_GRID.slUsd)
+  for (const maxOrders of OPT_GRID.maxOrders)
+    yield { tpPoints, lotMult, interval, slUsd, maxOrders };
+}
+
+async function runOptimize() {
+  if (!CANDLES.length) {
+    setStatus('error', '차트 데이터가 없습니다. [차트 데이터 받기]를 먼저 클릭하세요.');
+    return;
+  }
+  const btn = document.getElementById('btnOptimize');
+  btn.disabled = true;
+  setStatus('run', '최적 세팅 탐색 중...');
+  showProgress(0);
+  switchTab('optimize');
+
+  try {
+    const base = getParams();
+    const from = Math.floor(new Date(base.startDate + 'T00:00:00Z').getTime() / 1000);
+    const to   = Math.floor(new Date(base.endDate   + 'T23:59:59Z').getTime() / 1000);
+    const filtered = CANDLES.filter(k => k.ts >= from && k.ts <= to);
+    if (!filtered.length) throw new Error('선택 기간에 데이터 없음');
+
+    const total = OPT_GRID.tpPoints.length * OPT_GRID.lotMult.length *
+                  OPT_GRID.interval.length * OPT_GRID.slUsd.length * OPT_GRID.maxOrders.length;
+    const results = [];
+    let i = 0;
+    for (const ov of optCombos()) {
+      i++;
+      // DDL 제거, 손절은 SL만. 그 외 사용자 기본값(세션·요일·시드 등) 유지.
+      const p = { ...base, ...ov, dailyMaxLoss: 0 };
+      const r = simulate(filtered, p);
+      results.push({
+        tpPoints: ov.tpPoints, lotMult: ov.lotMult, interval: ov.interval,
+        slUsd: ov.slUsd, maxOrders: ov.maxOrders,
+        liquidated: r.liquidated, pnl: r.pnl, pnlPct: r.pnlPct,
+        winRate: r.winRate, pf: r.profitFactor, maxDDPct: r.maxDDPct,
+        trades: r.trades.length, baskets: r.baskets.length, maxConcurrent: r.maxConcurrent
+      });
+      if (i % 15 === 0) {
+        showProgress((i / total) * 100);
+        setStatus('run', `최적 세팅 탐색 중... ${i}/${total}`);
+        await new Promise(rsv => setTimeout(rsv, 0)); // UI 양보
+      }
+    }
+    showProgress(100);
+
+    const survived   = results.filter(r => !r.liquidated);
+    const profitable = survived.filter(r => r.pnl > 0);
+    profitable.sort((a, b) => b.pnlPct - a.pnlPct);
+
+    renderOptimizeResult({ total, results, survived, profitable, periodFrom: from, periodTo: to });
+    setStatus('done', `✅ 최적 탐색 완료 — 생존 ${survived.length} / 수익 ${profitable.length} / 전체 ${total}`);
+  } catch (e) {
+    setStatus('error', '오류: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => showProgress(-1), 1500);
+  }
+}
+
+function renderOptimizeResult({ total, results, survived, profitable, periodFrom, periodTo }) {
+  const el = document.getElementById('optimizeContent');
+  const fmtDate = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+  const period = `${fmtDate(periodFrom)} ~ ${fmtDate(periodTo)}`;
+
+  if (!profitable.length) {
+    el.innerHTML = `
+      <div class="opt-summary" style="padding:14px;margin-bottom:12px;background:rgba(224,120,120,0.08);border:1px solid rgba(224,120,120,0.3);border-radius:8px;">
+        <div style="font-weight:700;color:#e07878;margin-bottom:6px;">⚠️ 마진콜 없이 수익 나는 조합이 없습니다</div>
+        <div style="font-size:12px;color:var(--text-muted);">기간 ${period} · 검사 ${total}개 조합 · 생존(마진콜X) ${survived.length}개</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">이 기간의 가격 흐름에서는 마틴게일+그리드 구조가 구조적으로 손실(PF&lt;1)입니다. 손절(SL)을 더 크게 두거나 최대 주문수를 줄여보세요.</div>
+      </div>`;
+    return;
+  }
+
+  // 가장 안정적(MDD 낮은) 1개 = 추천
+  const best = [...profitable].sort((a, b) => a.maxDDPct - b.maxDDPct)[0];
+  // 최고 수익 1개
+  const topProfit = profitable[0];
+
+  const rowHtml = (r, rank, hi) => `
+    <tr${hi ? ' style="background:rgba(120,200,140,0.10);"' : ''}>
+      <td>${rank}</td>
+      <td class="g" style="font-weight:700;">+${r.pnlPct.toLocaleString()}%</td>
+      <td>$${r.pnl.toLocaleString()}</td>
+      <td>${r.pf}</td>
+      <td>${r.winRate}%</td>
+      <td class="${r.maxDDPct >= 90 ? 'r' : (r.maxDDPct <= 60 ? 'g' : '')}">${r.maxDDPct}%</td>
+      <td>${r.tpPoints}</td>
+      <td>${r.lotMult}</td>
+      <td>${r.interval}</td>
+      <td>$${r.slUsd}</td>
+      <td>${r.maxOrders}</td>
+      <td>${r.maxConcurrent}</td>
+    </tr>`;
+
+  const byProfit = profitable.slice(0, 15);
+  const byStable = [...profitable].sort((a, b) => a.maxDDPct - b.maxDDPct).slice(0, 15);
+
+  const tableHead = `
+    <thead><tr>
+      <th>#</th><th>수익률</th><th>순손익</th><th>PF</th><th>승률</th><th>MDD</th>
+      <th>익절(p)</th><th>배수</th><th>간격(p)</th><th>손절SL</th><th>최대주문</th><th>최대동시</th>
+    </tr></thead>`;
+
+  el.innerHTML = `
+    <div class="opt-summary" style="padding:14px;margin-bottom:14px;background:rgba(120,200,140,0.08);border:1px solid rgba(120,200,140,0.3);border-radius:8px;">
+      <div style="font-weight:700;color:#7ec894;margin-bottom:8px;">✅ 최적 세팅 탐색 결과</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+        기간 <b style="color:var(--text-secondary)">${period}</b> · 검사 <b>${total}</b>개 조합 ·
+        마진콜 없이 생존 <b style="color:#7ec894">${survived.length}</b>개 ·
+        그중 수익 <b style="color:#7ec894">${profitable.length}</b>개
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="padding:10px;background:rgba(0,0,0,0.15);border-radius:6px;">
+          <div style="font-size:11px;color:var(--text-muted);">🏆 추천 (가장 안정적 · MDD 최저)</div>
+          <div style="font-size:13px;font-weight:700;margin:4px 0;color:#7ec894;">+${best.pnlPct.toLocaleString()}% · MDD ${best.maxDDPct}% · PF ${best.pf}</div>
+          <div style="font-size:12px;color:var(--text-secondary);">익절 ${best.tpPoints}p / 배수 ${best.lotMult} / 간격 ${best.interval}p / 손절 $${best.slUsd} / 최대 ${best.maxOrders}주문</div>
+        </div>
+        <div style="padding:10px;background:rgba(0,0,0,0.15);border-radius:6px;">
+          <div style="font-size:11px;color:var(--text-muted);">💰 최고 수익 (변동성 큼)</div>
+          <div style="font-size:13px;font-weight:700;margin:4px 0;color:#5ba8e0;">+${topProfit.pnlPct.toLocaleString()}% · MDD ${topProfit.maxDDPct}% · PF ${topProfit.pf}</div>
+          <div style="font-size:12px;color:var(--text-secondary);">익절 ${topProfit.tpPoints}p / 배수 ${topProfit.lotMult} / 간격 ${topProfit.interval}p / 손절 $${topProfit.slUsd} / 최대 ${topProfit.maxOrders}주문</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+        ※ MDD(최대낙폭)가 90%↑면 청산 직전까지 갔던 위험한 세팅, 60%↓면 비교적 안정적입니다. 실전은 <b>추천(안정형)</b>을 권장합니다.
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 6px;">💰 수익률 TOP 15</div>
+    <div class="tbl-wrap"><table class="bt-tbl">${tableHead}<tbody>
+      ${byProfit.map((r, i) => rowHtml(r, i + 1, r === best)).join('')}
+    </tbody></table></div>
+
+    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:16px 0 6px;">🛡️ 안정성 TOP 15 (MDD 낮은 순)</div>
+    <div class="tbl-wrap"><table class="bt-tbl">${tableHead}<tbody>
+      ${byStable.map((r, i) => rowHtml(r, i + 1, r === best)).join('')}
+    </tbody></table></div>
+  `;
+}
+
 // 글로벌 노출
 window.runBacktest = runBacktest;
+window.runOptimize = runOptimize;
 window.runCaseCompare = runCaseCompare;
 window.fetchCandles = fetchCandles;
 window.setDateRange = setDateRange;
