@@ -119,8 +119,12 @@ wrangler CLI로 Pages 배포 후 D1 바인딩은 대시보드에서 설정:
 4. Variable name: `DB` / D1 database: `tradinglog-production`
 5. Save → Redeploy
 
-## 배포 상태
-- **플랫폼**: Cloudflare Pages
-- **D1 마이그레이션**: ✅ Production 적용 완료
-- **로컬 테스트**: ✅ 완료
-- **Pages 배포**: ⚠️ API 토큰 Cloudflare Pages: Edit 권한 필요
+## 배포 상태 (2026-06-14)
+- **플랫폼**: Cloudflare Pages (BYOK — 본인 계정 `Merryyas@gmail.com`)
+- **프로덕션 URL**: https://tradinglog-dvv.pages.dev
+- **최신 배포**: https://8c7a0134.tradinglog-dvv.pages.dev
+- **D1 마이그레이션**: ✅ Production 적용 완료 (0001~0003, candles 테이블 포함)
+- **D1 바인딩**: ✅ DB → tradinglog-production 연결 정상
+- **로컬 테스트**: ✅ 완료 (실데이터 수집·429 검증)
+- **Pages 배포**: ✅ 완료
+- **Twelve Data 수집 최적화**: ✅ 프로덕션 반영 (strategy.v11.js?v=20260613-tdopt)
