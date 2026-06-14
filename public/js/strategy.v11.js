@@ -1047,16 +1047,21 @@ function simulate(candles, p) {
       if (liquidated) break;
     }
 
-    if (liquidated) break;
-    if (dailyStopped) {
+    // ※ 여기서 조기 break 하지 않는다.
+    //   청산이 일어난 봉도 아래의 "봉 종가 기록"까지 진행해야 에쿼티 커브가
+    //   청산 시점에 $0 점을 남기고 정확히 끝난다. (조기 break하면 직전 봉이
+    //   마지막 점으로 남아 그래프가 $0이 아닌 값에서 끊겨 보임 → 사용자 지적 버그)
+    if (dailyStopped && !liquidated) {
       // 잔고 기록만
       equityCurve.push({ ts, balance:+balance.toFixed(2), equity:+balance.toFixed(2) });
       continue;
     }
 
     // 봉 시가에서 신규 진입 (이미 진입중이면 skip)
+    //   ※ 청산(liquidated) 후에는 추가 자본 유입이 없으므로 절대 재진입 금지.
     const entryPrice = k.o;
-    const canEnter = !dailyStopped
+    const canEnter = !liquidated
+      && !dailyStopped
       && ts >= cooldownUntil
       && inSession(kst, p);
 
@@ -1078,9 +1083,12 @@ function simulate(candles, p) {
     }
 
     // 잔고/MDD 기록 (봉 종가 기준)
+    //   ※ 청산되면 잔고=0·포지션 전부 정리 상태이므로 eq=0 이 되어야 한다.
+    //     혹시 모를 오차를 막기 위해 청산 시엔 명시적으로 0으로 고정한다.
     const finalPrice = k.c;
-    const finalUnrl = basketStats(buyPos, finalPrice).pnl + basketStats(sellPos, finalPrice).pnl;
-    const eq = balance + finalUnrl;
+    const finalUnrl = liquidated ? 0
+      : basketStats(buyPos, finalPrice).pnl + basketStats(sellPos, finalPrice).pnl;
+    const eq = liquidated ? 0 : balance + finalUnrl;
     if (eq > peak) peak = eq;
     const dd = peak - eq;
     const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
@@ -1088,10 +1096,16 @@ function simulate(candles, p) {
     if (ddPct > maxDDPct) maxDDPct = ddPct;
 
     // 잔고 곡선 (1분봉이면 매우 많아짐 → 다운샘플)
+    //   ※ 청산이 난 봉은 다운샘플과 무관하게 반드시 마지막 점($0)으로 기록.
+    //     (그래야 에쿼티 커브가 청산 시점에서 정확히 멈추고 끝까지 늘어지지 않음)
     const downsample = candles.length > 5000 ? Math.ceil(candles.length / 3000) : 1;
-    if (i % downsample === 0 || i === candles.length - 1) {
-      equityCurve.push({ ts, balance: +balance.toFixed(2), equity: +eq.toFixed(2) });
+    if (i % downsample === 0 || i === candles.length - 1 || liquidated) {
+      // 청산 봉은 청산이 실제 발생한 ts(liquidationInfo.ts)로 점을 찍어
+      //   에쿼티 커브와 가격 차트의 청산 지점이 정확히 일치하게 한다.
+      const recTs = liquidated && liquidationInfo ? liquidationInfo.ts : ts;
+      equityCurve.push({ ts: recTs, balance: +balance.toFixed(2), equity: +eq.toFixed(2) });
     }
+    if (liquidated) break;   // 청산 봉 기록 후 즉시 종료 (이후 매매 없음)
   }
 
   // 백테스트 종료: 잔여 포지션 강제 청산 (종가)
@@ -1304,10 +1318,17 @@ function renderSingleResult(r, p) {
   document.getElementById('eqFinal').textContent  = '$' + r.balance.toLocaleString();
   document.getElementById('eqMdd').textContent    = '-$' + r.maxDD.toLocaleString();
 
-  // 가격 차트 + 마커
-  renderPriceChart(CANDLES.filter(k => k.ts >= Math.floor(new Date(p.startDate+'T00:00:00Z').getTime()/1000)
-                                  && k.ts <= Math.floor(new Date(p.endDate+'T23:59:59Z').getTime()/1000)),
-                   r.trades, r.baskets);
+  // 가격 차트 + 청산 마커
+  //   ※ 청산이 났으면 캔들도 청산 시점까지만 그린다 (그 이후엔 매매가 없으므로).
+  const rangeStart = Math.floor(new Date(p.startDate+'T00:00:00Z').getTime()/1000);
+  let   rangeEnd   = Math.floor(new Date(p.endDate+'T23:59:59Z').getTime()/1000);
+  if (r.liquidated && r.liquidationInfo) {
+    rangeEnd = Math.min(rangeEnd, r.liquidationInfo.ts);
+  }
+  renderPriceChart(
+    CANDLES.filter(k => k.ts >= rangeStart && k.ts <= rangeEnd),
+    r.liquidationInfo
+  );
 
   // 바스켓 테이블
   renderBasketTable(r.baskets);
@@ -1409,13 +1430,17 @@ function renderCompareResult(results, baseParams) {
   // sweep 탭 컨텐츠
   document.getElementById('sweepContent').innerHTML = renderCompareTable(results);
 
-  // 가격차트 winner 기준
+  // 가격차트 winner 기준 (청산 마커만 · 청산 시점까지만)
   if (winnerId) {
     const w = results.find(r => r.id === winnerId);
+    const rs = Math.floor(new Date(baseParams.startDate+'T00:00:00Z').getTime()/1000);
+    let   re = Math.floor(new Date(baseParams.endDate+'T23:59:59Z').getTime()/1000);
+    if (w.result.liquidated && w.result.liquidationInfo) {
+      re = Math.min(re, w.result.liquidationInfo.ts);
+    }
     renderPriceChart(
-      CANDLES.filter(k => k.ts >= Math.floor(new Date(baseParams.startDate+'T00:00:00Z').getTime()/1000)
-                       && k.ts <= Math.floor(new Date(baseParams.endDate+'T23:59:59Z').getTime()/1000)),
-      w.result.trades, w.result.baskets
+      CANDLES.filter(k => k.ts >= rs && k.ts <= re),
+      w.result.liquidationInfo
     );
   }
 }
@@ -1536,7 +1561,7 @@ function renderEquityChart(series) {
   });
 }
 
-function renderPriceChart(candles, trades, baskets) {
+function renderPriceChart(candles, liquidationInfo) {
   document.getElementById('priceChartCard').style.display = 'block';
   const ctx = document.getElementById('priceChart').getContext('2d');
   if (priceChartObj) priceChartObj.destroy();
@@ -1545,25 +1570,37 @@ function renderPriceChart(candles, trades, baskets) {
   const downsample = candles.length > 3000 ? Math.ceil(candles.length / 2000) : 1;
   const priceData = candles.filter((_, i) => i % downsample === 0).map(k => ({ x: k.ts * 1000, y: k.c }));
 
-  // 진입 마커
-  const buyOpens  = trades.filter(t => t.direction === 'buy'  && t.type === 'open').map(t => ({ x: t.ts*1000, y: t.price }));
-  const buyAdds   = trades.filter(t => t.direction === 'buy'  && t.type === 'add' ).map(t => ({ x: t.ts*1000, y: t.price }));
-  const sellOpens = trades.filter(t => t.direction === 'sell' && t.type === 'open').map(t => ({ x: t.ts*1000, y: t.price }));
-  const sellAdds  = trades.filter(t => t.direction === 'sell' && t.type === 'add' ).map(t => ({ x: t.ts*1000, y: t.price }));
-  const closes    = baskets.map(b => ({ x: b.exitTs*1000, y: b.exitPrice }));
+  // 청산 마커만 표시 — 계좌 청산(자본금 $0 소진) 지점 1개를 붉은색으로.
+  //   진입/추가/TP·SL 마커는 모두 제외 (사용자 요청).
+  let liqPrice = null;
+  if (liquidationInfo) {
+    // 청산 시점에 가장 가까운 캔들의 종가를 청산 가격으로 사용
+    const liqTs = liquidationInfo.ts;
+    let nearest = null, best = Infinity;
+    for (const k of candles) {
+      const d = Math.abs(k.ts - liqTs);
+      if (d < best) { best = d; nearest = k; }
+    }
+    if (nearest) liqPrice = nearest.c;
+  }
+  const liqMarker = (liquidationInfo && liqPrice !== null)
+    ? [{ x: liquidationInfo.ts * 1000, y: liqPrice }]
+    : [];
+
+  const datasets = [
+    { label:'XAUUSD 종가', data: priceData, borderColor:'rgba(245,196,0,0.55)', borderWidth:1, pointRadius:0, tension:0 }
+  ];
+  if (liqMarker.length) {
+    datasets.push({
+      label:'계좌 청산', type:'scatter', data: liqMarker,
+      pointRadius:11, pointHoverRadius:14, pointStyle:'crossRot',
+      borderColor:'#ff2e2e', backgroundColor:'#ff2e2e', borderWidth:4
+    });
+  }
 
   priceChartObj = new Chart(ctx, {
     type: 'line',
-    data: {
-      datasets: [
-        { label:'XAUUSD 종가', data: priceData, borderColor:'rgba(245,196,0,0.7)', borderWidth:1, pointRadius:0, tension:0 },
-        { label:'매수 진입', type:'scatter', data: buyOpens,  pointRadius:5, pointStyle:'triangle', backgroundColor:'#3dd68c', borderColor:'#3dd68c' },
-        { label:'매수 추가', type:'scatter', data: buyAdds,   pointRadius:3, pointStyle:'circle', backgroundColor:'rgba(61,214,140,0.5)', borderColor:'#3dd68c' },
-        { label:'매도 진입', type:'scatter', data: sellOpens, pointRadius:5, pointStyle:'triangle', rotation:180, backgroundColor:'#f06060', borderColor:'#f06060' },
-        { label:'매도 추가', type:'scatter', data: sellAdds,  pointRadius:3, pointStyle:'circle', backgroundColor:'rgba(240,96,96,0.5)', borderColor:'#f06060' },
-        { label:'청산',     type:'scatter', data: closes,    pointRadius:5, pointStyle:'crossRot', borderColor:'#f5c400', backgroundColor:'#f5c400', borderWidth:2 }
-      ]
-    },
+    data: { datasets },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
       interaction: { mode:'nearest', intersect:false },
@@ -1577,7 +1614,9 @@ function renderPriceChart(candles, trades, baskets) {
               const d = new Date(items[0].parsed.x + 9*3600*1000);
               return d.toISOString().slice(0,16).replace('T',' ') + ' KST';
             },
-            label: (item) => `${item.dataset.label}: ${item.parsed.y.toFixed(2)}`
+            label: (item) => item.dataset.label === '계좌 청산'
+              ? `🔴 계좌 청산 (자본금 $0 소진) · ${item.parsed.y.toFixed(2)}`
+              : `${item.dataset.label}: ${item.parsed.y.toFixed(2)}`
           }
         }
       },
