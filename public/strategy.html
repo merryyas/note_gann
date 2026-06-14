@@ -771,8 +771,8 @@
             </div>
           </div>
           <div class="sess-row">
-            <input type="time" id="sess1Start" value="00:00" />
-            <input type="time" id="sess1End"   value="23:59" />
+            <input type="time" id="sess1Start" value="11:00" />
+            <input type="time" id="sess1End"   value="15:30" />
           </div>
           <div class="sess-label" style="margin-top:8px;">
             <span>세션 2</span>
@@ -854,7 +854,7 @@
           <button class="btn-sweep" id="btnOptimize" onclick="runOptimize()" style="margin-top:8px;border-color:rgba(120,200,140,0.5);color:#7ec894;">
             <i class="fas fa-magnifying-glass-chart"></i> 최적 세팅 찾기 (마진콜X + 수익)
           </button>
-          <div class="sweep-hint" style="margin-top:6px;">로드된 기간 전체로 수백 개 조합을 자동 백테스트해<br>마진콜 없이 수익 나는 세팅을 랭킹합니다. (수십 초 소요)</div>
+          <div class="sweep-hint" style="margin-top:6px;">로드된 기간 + <b style="color:var(--text-secondary)">현재 운영시간대 설정</b>으로 수백 개 조합을<br>자동 백테스트해 마진콜 없이 수익 나는 세팅을 랭킹합니다. (수십 초)</div>
         </div>
       </aside>
 
@@ -1015,7 +1015,7 @@
 </footer>
 
 <script src="js/utils.v11.js"></script>
-<script src="js/strategy.v11.js?v=20260614-optimize"></script>
+<script src="js/strategy.v11.js?v=20260614-session"></script>
 <script>
   /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');
