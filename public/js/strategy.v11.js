@@ -56,6 +56,12 @@ function ptoggle(key) {
   }
 }
 
+// ── 토글을 특정 상태로 설정 (프리셋 적용용) ─────────────────
+function setToggle(key, val) {
+  if (TOGGLES[key] === val) return;   // 이미 같으면 그대로
+  ptoggle(key);                        // ptoggle은 플립이므로 한 번 호출로 토글
+}
+
 // ── 빠른 날짜 범위 ─────────────────────────────────────────
 function setDateRange(type) {
   const now = new Date();
@@ -106,6 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // DB에 캐싱된 데이터 확인
   checkExistingData();
+
+  // 프리셋 적용 이력 렌더
+  renderPresetLog();
 });
 
 function getEnabledWeekdays() {
@@ -1868,9 +1877,96 @@ function renderOptimizeResult({ total, results, survived, profitable, periodFrom
   `;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  세팅 프리셋 (검증된 운용값 모음) — 선택 → 자동 적용 → 백테스트
+//  ※ 모든 프리셋: 시작랏 0.01, 시드배증 OFF, 평일(월~금), 단일세션(S1) 기준.
+//  ※ 백테스트로 검증된 6개월(2026-01~06) XAUUSD 데이터 기준 결과 요약 포함.
+// ══════════════════════════════════════════════════════════════
+const PRESETS = {
+  // ── 균형추천 (초반 $1000 생존 우선) ──
+  balanced: {
+    label: '🥇 균형추천 (시드$1000 · 초반 생존 우선)',
+    desc: '6개월 6분할 검증 전구간 생존 · 최악1건 -$477 · MaxDD16.7% · 수익률 2806%',
+    seed: 1000, startLot: 0.01, tpPoints: 200, lotMult: 1.3, interval: 500,
+    maxOrders: 4, slUsd: 300, s1Start: '12:00', s1End: '18:00',
+  },
+  safeFirst: {
+    label: '🛡️ 안전최우선 (시드$1000 · 최저 리스크)',
+    desc: '최악1건 -$306(시드 31%) · MaxDD38.4% · 수익률 1499% · 13~17시 평온시간',
+    seed: 1000, startLot: 0.01, tpPoints: 200, lotMult: 1.3, interval: 500,
+    maxOrders: 4, slUsd: 200, s1Start: '13:00', s1End: '17:00',
+  },
+
+  // ── 시드 $1000 · 손절(자본 대비 %) 케이스 ──  (TP/배수/간격/주문 = 각 케이스 최적조합)
+  s1000_sl10:  { label: '시드$1000 · SL 10%($100)',  desc: 'MDD96.8% PF1.38 (위험)',  seed:1000, startLot:0.01, tpPoints:200, lotMult:1.3, interval:500, maxOrders:5, slUsd:100,  s1Start:'12:00', s1End:'21:00' },
+  s1000_sl25:  { label: '시드$1000 · SL 25%($250)',  desc: 'MDD38.6% PF1.61',          seed:1000, startLot:0.01, tpPoints:200, lotMult:1.3, interval:300, maxOrders:8, slUsd:250,  s1Start:'12:00', s1End:'21:00' },
+  s1000_sl50:  { label: '시드$1000 · SL 50%($500)',  desc: 'MDD20.4% PF1.82',          seed:1000, startLot:0.01, tpPoints:200, lotMult:1.3, interval:300, maxOrders:8, slUsd:500,  s1Start:'12:00', s1End:'21:00' },
+  s1000_sl75:  { label: '시드$1000 · SL 75%($750)',  desc: 'MDD24.9% PF1.94',          seed:1000, startLot:0.01, tpPoints:200, lotMult:1.8, interval:500, maxOrders:8, slUsd:750,  s1Start:'12:00', s1End:'21:00' },
+  s1000_sl100: { label: '시드$1000 · SL 100%($1000)', desc: 'MDD16.9% PF2.28 · 최고수익 8639% (배수1.8)', seed:1000, startLot:0.01, tpPoints:200, lotMult:1.8, interval:500, maxOrders:5, slUsd:1000, s1Start:'12:00', s1End:'21:00' },
+
+  // ── 시드 $2000 · 손절(자본 대비 %) 케이스 ──
+  s2000_sl10:  { label: '시드$2000 · SL 10%($200)',  desc: 'MDD51.8% PF1.56',          seed:2000, startLot:0.01, tpPoints:300, lotMult:1.3, interval:500, maxOrders:5, slUsd:200,  s1Start:'12:00', s1End:'21:00' },
+  s2000_sl25:  { label: '시드$2000 · SL 25%($500)',  desc: 'MDD18.6% PF1.82',          seed:2000, startLot:0.01, tpPoints:200, lotMult:1.3, interval:300, maxOrders:8, slUsd:500,  s1Start:'12:00', s1End:'21:00' },
+  s2000_sl50:  { label: '시드$2000 · SL 50%($1000)', desc: 'MDD16.5% PF2.28',          seed:2000, startLot:0.01, tpPoints:200, lotMult:1.8, interval:500, maxOrders:5, slUsd:1000, s1Start:'12:00', s1End:'21:00' },
+  s2000_sl75:  { label: '시드$2000 · SL 75%($1500)', desc: 'MDD22.9% PF1.87',          seed:2000, startLot:0.01, tpPoints:200, lotMult:1.8, interval:500, maxOrders:5, slUsd:1500, s1Start:'12:00', s1End:'21:00' },
+  s2000_sl100: { label: '시드$2000 · SL 100%($2000)', desc: 'MDD30.0% PF2.32 · 최고수익 8088%', seed:2000, startLot:0.01, tpPoints:200, lotMult:1.8, interval:500, maxOrders:5, slUsd:2000, s1Start:'12:00', s1End:'21:00' },
+};
+
+// 프리셋을 UI 입력값에 적용
+function applyPreset(key) {
+  const p = PRESETS[key];
+  if (!p) return;
+  // 입력값
+  document.getElementById('paramSeed').value      = p.seed;
+  document.getElementById('paramStartLot').value  = p.startLot;
+  document.getElementById('paramTpPts').value     = p.tpPoints;
+  document.getElementById('paramLotMult').value   = p.lotMult;
+  document.getElementById('paramInterval').value  = p.interval;
+  document.getElementById('paramMaxOrders').value = p.maxOrders;
+  document.getElementById('paramSlUsd').value     = p.slUsd;
+  document.getElementById('sess1Start').value     = p.s1Start;
+  document.getElementById('sess1End').value       = p.s1End;
+  // 토글: 양방향 ON, 바스켓TP ON, 시드배증 OFF, 세션1 ON, 세션2 OFF
+  setToggle('buy', true); setToggle('sell', true);
+  setToggle('tp', true);  setToggle('doubling', false);
+  setToggle('s1', true);  setToggle('s2', false);
+
+  // 적용 안내 + 선택값 기록
+  const info = document.getElementById('presetInfo');
+  if (info) {
+    info.innerHTML =
+      `<b>✅ 적용됨:</b> ${p.label}<br>` +
+      `<span style="color:var(--text-secondary)">세팅: 시드$${p.seed} / 시작랏${p.startLot} / TP${p.tpPoints} / 배수${p.lotMult} / 간격${p.interval} / 최대${p.maxOrders}주문 / SL$${p.slUsd} / 운영 ${p.s1Start}~${p.s1End} KST</span><br>` +
+      `<span style="color:var(--accent,#16a34a)">검증결과(6개월): ${p.desc}</span>`;
+    info.style.display = 'block';
+  }
+  // 적용 이력 기록 (localStorage)
+  try {
+    const log = JSON.parse(localStorage.getItem('presetLog') || '[]');
+    log.unshift({ key, label: p.label, at: new Date().toISOString() });
+    localStorage.setItem('presetLog', JSON.stringify(log.slice(0, 50)));
+    renderPresetLog();
+  } catch (e) {}
+}
+
+// 프리셋 적용 이력 렌더
+function renderPresetLog() {
+  const box = document.getElementById('presetLog');
+  if (!box) return;
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem('presetLog') || '[]'); } catch (e) {}
+  if (!log.length) { box.innerHTML = '<span style="color:var(--text-secondary)">아직 적용 이력이 없습니다.</span>'; return; }
+  box.innerHTML = log.slice(0, 10).map(r => {
+    const t = new Date(r.at);
+    const ts = `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+    return `<div style="padding:3px 0;border-bottom:1px solid var(--border,#eee);font-size:12px;">${ts} · ${r.label}</div>`;
+  }).join('');
+}
+
 // 글로벌 노출
 window.runBacktest = runBacktest;
 window.runOptimize = runOptimize;
+window.applyPreset = applyPreset;
 window.runCaseCompare = runCaseCompare;
 window.fetchCandles = fetchCandles;
 window.setDateRange = setDateRange;

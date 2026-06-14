@@ -571,6 +571,39 @@
             <button class="quick-range" onclick="setDateRange('2y')">2년</button>
           </div>
 
+          <!-- ⭐ 검증된 세팅 프리셋 -->
+          <div class="pr" style="margin-top:10px;background:rgba(245,196,0,0.06);border:1px solid rgba(245,196,0,0.25);border-radius:8px;padding:10px;display:block;">
+            <span class="pr-label" style="display:block;margin-bottom:6px;">
+              ⭐ 검증된 세팅 프리셋<small>선택하면 아래 모든 값이 자동 적용됩니다</small>
+            </span>
+            <select id="presetSelect" class="pr-select" style="width:100%;" onchange="if(this.value)applyPreset(this.value)">
+              <option value="">— 프리셋 선택 —</option>
+              <optgroup label="🥇 초반 $1000 생존 우선 (추천)">
+                <option value="balanced">🥇 균형추천 (시드$1000 · 초반 생존 우선)</option>
+                <option value="safeFirst">🛡️ 안전최우선 (시드$1000 · 최저 리스크)</option>
+              </optgroup>
+              <optgroup label="💵 시드 $1000 · 손절(자본대비%) 케이스">
+                <option value="s1000_sl10">시드$1000 · SL 10%($100) · MDD96.8%(위험)</option>
+                <option value="s1000_sl25">시드$1000 · SL 25%($250) · MDD38.6%</option>
+                <option value="s1000_sl50">시드$1000 · SL 50%($500) · MDD20.4%</option>
+                <option value="s1000_sl75">시드$1000 · SL 75%($750) · MDD24.9%</option>
+                <option value="s1000_sl100">시드$1000 · SL 100%($1000) · 최고수익 8639%</option>
+              </optgroup>
+              <optgroup label="💰 시드 $2000 · 손절(자본대비%) 케이스">
+                <option value="s2000_sl10">시드$2000 · SL 10%($200) · MDD51.8%</option>
+                <option value="s2000_sl25">시드$2000 · SL 25%($500) · MDD18.6%</option>
+                <option value="s2000_sl50">시드$2000 · SL 50%($1000) · MDD16.5%</option>
+                <option value="s2000_sl75">시드$2000 · SL 75%($1500) · MDD22.9%</option>
+                <option value="s2000_sl100">시드$2000 · SL 100%($2000) · 최고수익 8088%</option>
+              </optgroup>
+            </select>
+            <div id="presetInfo" style="display:none;margin-top:8px;font-size:12px;line-height:1.5;background:rgba(0,0,0,0.15);border-radius:6px;padding:8px;"></div>
+            <details style="margin-top:8px;">
+              <summary style="cursor:pointer;font-size:11px;color:var(--text-secondary);">📋 프리셋 적용 이력 보기</summary>
+              <div id="presetLog" style="margin-top:6px;"></div>
+            </details>
+          </div>
+
           <!-- 데이터 소스 -->
           <div class="pr">
             <span class="pr-label">정밀도<small>OHLC 봉 단위</small></span>
@@ -1015,7 +1048,7 @@
 </footer>
 
 <script src="js/utils.v11.js"></script>
-<script src="js/strategy.v11.js?v=20260614-nysession"></script>
+<script src="js/strategy.v11.js?v=20260614-presets"></script>
 <script>
   /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');
