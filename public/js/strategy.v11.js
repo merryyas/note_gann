@@ -820,7 +820,43 @@ function simulate(candles, p) {
     const pos = direction === 'buy' ? buyPos : sellPos;
     if (!pos.length) return 0;
     const stats = basketStats(pos, exitPrice);
-    const pnl = stats.pnl;
+    let pnl = stats.pnl;
+
+    // ── 마진콜(완전 청산) 가드 ───────────────────────────────────────────
+    //   이 손익을 잔고에 반영했을 때 잔고가 0 이하로 떨어지면(=시드 전액 소진),
+    //   추가 자본 유입이 없으므로 손실은 "남은 잔고만큼만" 실제로 확정되고
+    //   계좌는 그 즉시 깡통(잔고 $0)이 된다.
+    //   예) 시드 $10에서 SL -$500이 걸리면 실제로 빠지는 건 $10뿐 → 잔고 $0, 청산.
+    if (pnl < 0 && balance + pnl <= 0) {
+      pnl = -balance;                       // 남은 잔고만큼만 실손실 확정
+      balance = 0;
+
+      baskets.push({
+        idx: baskets.length + 1,
+        direction,
+        entryTs: pos[0].ts,
+        exitTs: ts,
+        positions: pos.length,
+        totalLot: +stats.totalLot.toFixed(2),
+        avgPrice: +stats.avg.toFixed(2),
+        exitPrice: +exitPrice.toFixed(2),
+        pnl: +pnl.toFixed(2),
+        balance: 0,
+        reason: reason + ' → 마진콜(자본금 $0 소진)',
+        positionsDetail: pos.map((x,i) => ({
+          order: i+1, entry: +x.entry.toFixed(2), lot: x.lot, ts: x.ts,
+          pnl: +posPnL(direction, x.entry, exitPrice, x.lot).toFixed(2)
+        }))
+      });
+
+      dailyPnl += pnl;
+      buyPos = []; sellPos = [];
+      buyTrigger = null; sellTrigger = null;
+      liquidated = true;
+      liquidationInfo = { ts, equity: 0, reason: '계좌 청산 (자본금 $0 소진 · 마진콜)' };
+      return pnl;
+    }
+
     balance += pnl;
 
     baskets.push({
@@ -856,11 +892,19 @@ function simulate(candles, p) {
   }
 
   function checkLiquidation(ts, unrealizedPnl) {
-    // 가용잔고 = balance + unrealizedPnl
+    // 가용자본(Equity) = 실현잔고 + 미실현손익.
+    //   초기 시드 $1000이 전부 소진(Equity ≤ 0)되면 추가 자본 유입이 없으므로
+    //   그 즉시 강제청산(마진콜)되고 이후 매매를 잇지 못한다.
+    //   ※ SL(-$500)에 닿기 전이라도 잔고가 미실현손실을 못 버티면 여기서 깡통.
+    //     예) 잔고 $300 + 미실현 -$300 → Equity $0 → SL($500) 도달 전 청산.
     const equity = balance + unrealizedPnl;
-    if (equity <= 0 || equity < startingBalance * 0.05) {
+    if (equity <= 0) {
+      // 잔여 자본 전액 손실로 확정 → 잔고 0, 모든 포지션 강제 종료
+      balance = 0;
+      buyPos = []; sellPos = [];
+      buyTrigger = null; sellTrigger = null;
       liquidated = true;
-      liquidationInfo = { ts, equity:+equity.toFixed(2), reason: '계좌 청산 (가용잔고 ≤ 5%)' };
+      liquidationInfo = { ts, equity: 0, reason: '계좌 청산 (자본금 $0 소진 · 마진콜)' };
       return true;
     }
     return false;
@@ -872,6 +916,7 @@ function simulate(candles, p) {
 
   // 1분봉 순회
   for (let i = 0; i < candles.length; i++) {
+    if (liquidated) break;   // 계좌 청산되면 이후 매매 불가 (추가 자본 유입 없음)
     const k = candles[i];
     const ts = k.ts;
     const kst = toKST(ts);
@@ -904,17 +949,24 @@ function simulate(candles, p) {
           if (stS.pnl >= tgt) closeBasket('sell', price, ts, 'TP');
         }
       }
+      if (liquidated) return true;
       // 통합 SL: 바스켓 평가손실이 -slUsd 이하면 즉시 손절.
+      //   closeBasket 내부에서 잔고를 초과하는 손실이면 마진콜(청산) 처리되므로
+      //   liquidated 플래그가 서면 즉시 중단한다.
       if (p.slUsd > 0) {
         if (buyPos.length  && basketStats(buyPos,  price).pnl <= -p.slUsd) closeBasket('buy',  price, ts, 'SL');
+        if (liquidated) return true;
         if (sellPos.length && basketStats(sellPos, price).pnl <= -p.slUsd) closeBasket('sell', price, ts, 'SL');
+        if (liquidated) return true;
       }
       // 일일 최대 손실
       if (p.dailyMaxLoss > 0 && !dailyStopped) {
         const unrl = basketStats(buyPos, price).pnl + basketStats(sellPos, price).pnl;
         if (dailyPnl + unrl <= -p.dailyMaxLoss) {
           if (buyPos.length)  closeBasket('buy',  price, ts, 'DDL');
+          if (liquidated) return true;
           if (sellPos.length) closeBasket('sell', price, ts, 'DDL');
+          if (liquidated) return true;
           dailyStopped = true;
         }
       }
@@ -946,7 +998,11 @@ function simulate(candles, p) {
         buyPos.push({ entry: fillPx, lot: newLot, ts, direction:'buy' });
         trades.push({ ts, direction:'buy', price: fillPx, lot:newLot, type:'add' });
         buyTrigger = fillPx - p.interval * CONTRACT.pointSize;
-        if (checkExits(fillPx)) break;             // 레벨 도달 시점에 SL/TP 평가
+        // 레벨가(fillPx)에서 한번, 현재 봉가격(price, fillPx보다 불리)에서 한번 평가.
+        //   마틴게일은 레벨당 손실 점프가 커서, 레벨가에선 -SL 미만이어도
+        //   같은 봉의 더 낮은 가격에선 -SL을 넘는다. 둘 다 봐야 SL이 제때 발동.
+        if (checkExits(fillPx)) break;
+        if (price < fillPx && checkExits(price)) break;
       }
       if (liquidated) break;
 
@@ -960,6 +1016,7 @@ function simulate(candles, p) {
         trades.push({ ts, direction:'sell', price: fillPx, lot:newLot, type:'add' });
         sellTrigger = fillPx + p.interval * CONTRACT.pointSize;
         if (checkExits(fillPx)) break;
+        if (price > fillPx && checkExits(price)) break;
       }
       if (liquidated) break;
     }
