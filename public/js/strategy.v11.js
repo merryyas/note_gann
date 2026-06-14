@@ -887,66 +887,81 @@ function simulate(candles, p) {
     // 봉 내부 가격 경로 시뮬레이션
     const pricesInBar = PATH.map(key => k[key]);
 
-    for (let pi = 0; pi < pricesInBar.length; pi++) {
-      const price = pricesInBar[pi];
-      if (isNaN(price) || price <= 0) continue;
-
-      // 통합 TP/SL 체크 (바스켓 평단 기준)
+    // ── 한 가격점에서 청산(TP/SL/DDL) 체크 → 닿으면 즉시 일괄청산 ──
+    //   추가진입 직후/봉내부 매 가격점마다 호출. 청산이 일어나면 true 반환.
+    function checkExits(price) {
       const stB = basketStats(buyPos,  price);
       const stS = basketStats(sellPos, price);
 
-      // ── 통합 TP 목표 (실거래 EA 역설계 결과) ──────────────────
-      //   바스켓 평단가가 (tpPoints / 주문수) 포인트만큼 유리하게 움직이면 전체 청산.
-      //   실데이터 검증(익절포인트 300 기준):
-      //     1개→300pt, 2개→150pt, 3개→100pt, 4개→75pt, 5개→60pt, 6개→50pt, 8개→37pt
-      //   → 평단 목표pts = tpPoints / 주문수.  목표$ = 평단목표pts × pointSize × contractSize × totalLot
-      const tpPtsBuy  = buyPos.length  ? p.tpPoints / buyPos.length  : p.tpPoints;
-      const tpPtsSell = sellPos.length ? p.tpPoints / sellPos.length : p.tpPoints;
-      const tpTargetBuy  = tpPtsBuy  * CONTRACT.pointSize * CONTRACT.contractSize * stB.totalLot;
-      const tpTargetSell = tpPtsSell * CONTRACT.pointSize * CONTRACT.contractSize * stS.totalLot;
-
+      // 통합 TP: 평단가가 (tpPoints / 주문수) pt 유리하게 이동하면 일괄청산.
       if (p.useBasketTp) {
-        if (buyPos.length  && stB.pnl >= tpTargetBuy)  closeBasket('buy',  price, ts, 'TP');
-        if (sellPos.length && stS.pnl >= tpTargetSell) closeBasket('sell', price, ts, 'TP');
+        if (buyPos.length) {
+          const tgt = (p.tpPoints / buyPos.length) * CONTRACT.pointSize * CONTRACT.contractSize * stB.totalLot;
+          if (stB.pnl >= tgt) closeBasket('buy', price, ts, 'TP');
+        }
+        if (sellPos.length) {
+          const tgt = (p.tpPoints / sellPos.length) * CONTRACT.pointSize * CONTRACT.contractSize * stS.totalLot;
+          if (stS.pnl >= tgt) closeBasket('sell', price, ts, 'TP');
+        }
       }
-      // 통합 SL
+      // 통합 SL: 바스켓 평가손실이 -slUsd 이하면 즉시 손절.
       if (p.slUsd > 0) {
-        if (buyPos.length  && stB.pnl <= -p.slUsd) closeBasket('buy',  price, ts, 'SL');
-        if (sellPos.length && stS.pnl <= -p.slUsd) closeBasket('sell', price, ts, 'SL');
+        if (buyPos.length  && basketStats(buyPos,  price).pnl <= -p.slUsd) closeBasket('buy',  price, ts, 'SL');
+        if (sellPos.length && basketStats(sellPos, price).pnl <= -p.slUsd) closeBasket('sell', price, ts, 'SL');
       }
       // 일일 최대 손실
       if (p.dailyMaxLoss > 0 && !dailyStopped) {
-        const stBNow = basketStats(buyPos,  price);
-        const stSNow = basketStats(sellPos, price);
-        const unrl = stBNow.pnl + stSNow.pnl;
+        const unrl = basketStats(buyPos, price).pnl + basketStats(sellPos, price).pnl;
         if (dailyPnl + unrl <= -p.dailyMaxLoss) {
           if (buyPos.length)  closeBasket('buy',  price, ts, 'DDL');
           if (sellPos.length) closeBasket('sell', price, ts, 'DDL');
           dailyStopped = true;
         }
       }
-
-      // 청산 체크
+      // 계좌 청산(파산) 체크
       const unr = basketStats(buyPos, price).pnl + basketStats(sellPos, price).pnl;
-      if (checkLiquidation(ts, unr)) break;
+      return checkLiquidation(ts, unr);
+    }
 
-      // 추가진입 트리거 체크
-      //   새 주문 랏 = round(바스켓 시작랏 × 배수^주문순번).
-      //   주문순번 n = 현재 보유 포지션 수(초기진입=0이므로 추가진입은 length부터).
-      if (buyPos.length && buyTrigger !== null && price <= buyTrigger && buyPos.length < p.maxOrders) {
+    for (let pi = 0; pi < pricesInBar.length; pi++) {
+      const price = pricesInBar[pi];
+      if (isNaN(price) || price <= 0) continue;
+
+      // 1) 현재 가격점에서 청산 체크 (추가진입 전에 먼저)
+      if (checkExits(price)) break;
+
+      // 2) 추가진입 트리거 — 가격이 그리드를 여러 칸 관통했으면 그만큼 연속 추가.
+      //    (기존엔 1점당 1개만 추가 → 급락/급등봉에서 물량이 덜 쌓여 SL을 놓치고
+      //     평가손실이 비현실적으로 커지는 버그였음. while 루프로 정정.)
+      //    추가진입 1개마다 즉시 SL/TP 재체크해서 손절선 닿으면 바로 청산.
+      //    ※ 진입가는 "그리드 레벨가(buyTrigger)"로 잡는다. (해당 가격이 봉 범위를
+      //      통과했다는 의미이므로, 그 레벨에서 체결된 것으로 본다.) 그래야 레벨마다
+      //      누적 평가손실이 정확히 계산돼 SL이 제때 발동한다.
+      let guard = 0;
+      while (buyPos.length && buyTrigger !== null && price <= buyTrigger
+             && buyPos.length < p.maxOrders && guard++ < 500) {
+        const fillPx  = buyTrigger;                    // 그리드 레벨가에서 체결
         const baseLot = buyPos[0].lot;                 // 바스켓 시작랏(조정값 반영)
         const newLot  = martinLotAt(baseLot, p.lotMult, buyPos.length);
-        buyPos.push({ entry: price, lot: newLot, ts, direction:'buy' });
-        trades.push({ ts, direction:'buy', price, lot:newLot, type:'add' });
-        buyTrigger = price - p.interval * CONTRACT.pointSize;
+        buyPos.push({ entry: fillPx, lot: newLot, ts, direction:'buy' });
+        trades.push({ ts, direction:'buy', price: fillPx, lot:newLot, type:'add' });
+        buyTrigger = fillPx - p.interval * CONTRACT.pointSize;
+        if (checkExits(fillPx)) break;             // 레벨 도달 시점에 SL/TP 평가
       }
-      if (sellPos.length && sellTrigger !== null && price >= sellTrigger && sellPos.length < p.maxOrders) {
+      if (liquidated) break;
+
+      guard = 0;
+      while (sellPos.length && sellTrigger !== null && price >= sellTrigger
+             && sellPos.length < p.maxOrders && guard++ < 500) {
+        const fillPx  = sellTrigger;
         const baseLot = sellPos[0].lot;
         const newLot  = martinLotAt(baseLot, p.lotMult, sellPos.length);
-        sellPos.push({ entry: price, lot: newLot, ts, direction:'sell' });
-        trades.push({ ts, direction:'sell', price, lot:newLot, type:'add' });
-        sellTrigger = price + p.interval * CONTRACT.pointSize;
+        sellPos.push({ entry: fillPx, lot: newLot, ts, direction:'sell' });
+        trades.push({ ts, direction:'sell', price: fillPx, lot:newLot, type:'add' });
+        sellTrigger = fillPx + p.interval * CONTRACT.pointSize;
+        if (checkExits(fillPx)) break;
       }
+      if (liquidated) break;
     }
 
     if (liquidated) break;
