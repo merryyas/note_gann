@@ -782,6 +782,21 @@ function adjustStartLot(baseLot, currentBalance, initialSeed, p) {
   }
 }
 
+// 통합 손절금액(SL) 스케일링 — 진입 랏 배증과 "동일한 배수"로 SL도 키운다.
+//   (A 방식) 자본금이 2배가 되어 랏이 2배가 되면 손실 폭도 2배이므로 SL도 2배여야
+//   일관성이 맞다. 결과적으로 "자본금 대비 일정 비율(예: 50%)" 손절과 동치.
+//   예) 시드 $1000·SL $500 → $2000이면 SL $1000 → $4000이면 SL $2000.
+//   ※ doubling(랏 배증)이 꺼져 있으면 SL은 baseSl 고정.
+//   ※ 'add' 모드는 랏을 가산하므로 SL은 배수가 아닌 '진입랏 비율'로 맞춘다.
+function adjustSlUsd(baseSl, baseLot, currentBalance, initialSeed, p) {
+  if (baseSl <= 0) return baseSl;           // SL 미사용
+  if (!p.doubling) return baseSl;           // 랏 배증 OFF → SL 고정
+  const scaledLot = adjustStartLot(baseLot, currentBalance, initialSeed, p);
+  if (scaledLot <= baseLot) return baseSl;  // 아직 배증 전
+  // 진입 랏이 커진 비율만큼 SL도 키운다 (랏 2배 → SL 2배).
+  return +(baseSl * (scaledLot / baseLot)).toFixed(2);
+}
+
 /**
  * 메인 시뮬레이션
  * @param candles [{ts,o,h,l,c}] UTC epoch sec, 오름차순
@@ -951,12 +966,23 @@ function simulate(candles, p) {
       }
       if (liquidated) return true;
       // 통합 SL: 바스켓 평가손실이 -slUsd 이하면 즉시 손절.
+      //   ※ 진입 랏이 자본금 배증으로 커지면 SL도 같은 배수로 스케일(A 방식).
+      //     바스켓의 시작랏(pos[0].lot)이 기본랏(startLot) 대비 몇 배인지로 산정.
+      //     예) 랏 2배로 진입한 바스켓 → SL $500×2 = $1000.
       //   closeBasket 내부에서 잔고를 초과하는 손실이면 마진콜(청산) 처리되므로
       //   liquidated 플래그가 서면 즉시 중단한다.
       if (p.slUsd > 0) {
-        if (buyPos.length  && basketStats(buyPos,  price).pnl <= -p.slUsd) closeBasket('buy',  price, ts, 'SL');
+        if (buyPos.length) {
+          const slB = p.doubling && p.startLot > 0
+            ? +(p.slUsd * (buyPos[0].lot / p.startLot)).toFixed(2) : p.slUsd;
+          if (basketStats(buyPos, price).pnl <= -slB) closeBasket('buy', price, ts, 'SL');
+        }
         if (liquidated) return true;
-        if (sellPos.length && basketStats(sellPos, price).pnl <= -p.slUsd) closeBasket('sell', price, ts, 'SL');
+        if (sellPos.length) {
+          const slS = p.doubling && p.startLot > 0
+            ? +(p.slUsd * (sellPos[0].lot / p.startLot)).toFixed(2) : p.slUsd;
+          if (basketStats(sellPos, price).pnl <= -slS) closeBasket('sell', price, ts, 'SL');
+        }
         if (liquidated) return true;
       }
       // 일일 최대 손실
@@ -1035,6 +1061,10 @@ function simulate(candles, p) {
       && inSession(kst, p);
 
     if (canEnter) {
+      // 신규 진입 직전, 현재 자본금 기준으로 시작랏 재산정 (배증 반영).
+      //   → 이 랏 값으로 진입하면 SL도 동일 배수로 스케일된다 (checkExits 참조).
+      curBuyLot  = adjustStartLot(p.startLot, balance, startingBalance, p);
+      curSellLot = adjustStartLot(p.startLot, balance, startingBalance, p);
       if (p.allowBuy && buyPos.length === 0) {
         buyPos.push({ entry: entryPrice, lot: curBuyLot, ts, direction:'buy' });
         trades.push({ ts, direction:'buy', price: entryPrice, lot: curBuyLot, type:'open' });
