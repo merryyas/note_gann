@@ -1080,7 +1080,10 @@ function simulate(candles, p) {
     const finalPrice = k.c;
     const finalUnrl = liquidated ? 0
       : basketStats(buyPos, finalPrice).pnl + basketStats(sellPos, finalPrice).pnl;
-    const eq = liquidated ? 0 : balance + finalUnrl;
+    // 가용자본(Equity). 단, 실제 계좌는 시드 이상 잃을 수 없으므로(추가 자본
+    //   유입 없음·마진콜) 평가손실이 시드를 넘어 음수가 되어도 0으로 바닥을 둔다.
+    //   → MDD가 시드(원금)를 초과해 표시되던 문제 방지. (예: -$1,399.5 같은 값)
+    const eq = liquidated ? 0 : Math.max(0, balance + finalUnrl);
     if (eq > peak) peak = eq;
     const dd = peak - eq;
     const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
@@ -1298,8 +1301,13 @@ function renderSingleResult(r, p) {
   setKpi('kcPF', r.profitFactor.toString(), r.profitFactor >= 1.5 ? 'g' : (r.profitFactor >= 1 ? 'y' : 'r'));
   setKpi('kcMDD', '-$' + r.maxDD.toLocaleString(), 'r');
   setKpi('kcMDDSub', '-' + r.maxDDPct + '%');
-  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL').length.toString(), 'r');
-  setKpi('kcSLSub', r.liquidated ? '⚠️ 계좌청산' : '정상');
+  const slCount = r.baskets.filter(b => (b.reason||'').startsWith('SL')).length;
+  setKpi('kcSL', slCount.toString(), 'r');
+  // 청산됐는데 손절 0 → 손절을 안 걸어(SL=0) 첫 바스켓이 마진콜로 파산한 것.
+  setKpi('kcSLSub',
+    r.liquidated
+      ? (slCount === 0 ? '⚠️ 손절없이 마진콜' : '⚠️ 계좌청산')
+      : '정상');
   setKpi('kcMaxPos', r.maxConcurrent.toString(), r.maxConcurrent <= 5 ? 'g' : (r.maxConcurrent <= 15 ? 'y' : 'r'));
   setKpi('kcMaxPosSub', `최대 진입 ${p.maxOrders}`);
   setKpi('kcPeriod', p.startDate.slice(2));
@@ -1450,7 +1458,7 @@ function renderSingleResultKpiOnly(r, p, title) {
   setKpi('kcPF', r.profitFactor.toString(), r.profitFactor >= 1.5 ? 'g' : (r.profitFactor >= 1 ? 'y' : 'r'));
   setKpi('kcMDD', '-$' + r.maxDD.toLocaleString(), 'r');
   setKpi('kcMDDSub', '-' + r.maxDDPct + '%');
-  setKpi('kcSL', r.baskets.filter(b => b.reason === 'SL').length.toString(), 'r');
+  setKpi('kcSL', r.baskets.filter(b => (b.reason||'').startsWith('SL')).length.toString(), 'r');
   setKpi('kcSLSub', r.liquidated ? '⚠️ 청산' : '정상');
   setKpi('kcMaxPos', r.maxConcurrent.toString(), 'y');
   setKpi('kcMaxPosSub', `최대 진입 ${p.maxOrders}`);
