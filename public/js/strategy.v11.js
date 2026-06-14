@@ -72,10 +72,12 @@ function setDateRange(type) {
   if (btn) btn.classList.add('active');
 }
 
+// ── Twelve Data 기본 API 키 (사용자 제공, 무료 플랜) ──────────
+const TD_DEFAULT_KEY = '4f9145b3de3f49b397800fefe888d676';
+
 // ── 데이터 소스 변경 ─────────────────────────────────────
 function onSourceChange() {
   const src = document.getElementById('paramSource').value;
-  document.getElementById('apiKeyRow').style.display = (src === 'twelvedata') ? '' : 'none';
   document.getElementById('csvUploadRow').style.display = (src === 'upload') ? '' : 'none';
   // CSV는 파일 선택 시 자동 처리 → "차트 데이터 받기" 버튼 숨김
   const btn = document.getElementById('btnFetch');
@@ -85,7 +87,7 @@ function onSourceChange() {
   const st = document.getElementById('dataStatus');
   if (st && !CANDLES.length) {
     if (src === 'upload') st.innerHTML = '데이터 없음 — CSV 파일을 선택하세요';
-    else if (src === 'twelvedata') st.innerHTML = '데이터 없음 — API 키 입력 후 [받기] 클릭';
+    else if (src === 'twelvedata') st.innerHTML = '데이터 없음 — [차트 데이터 받기] 클릭';
     else st.innerHTML = '데이터 없음 — [받기] 클릭';
   }
 }
@@ -98,13 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 기본: 올해(YTD)
   setDateRange('ytd');
   onSourceChange();
-
-  // 저장된 API 키 로드
-  const savedKey = localStorage.getItem('td_api_key');
-  if (savedKey) document.getElementById('paramApiKey').value = savedKey;
-  document.getElementById('paramApiKey').addEventListener('change', (e) => {
-    localStorage.setItem('td_api_key', e.target.value.trim());
-  });
 
   // CSV 업로드 핸들러
   document.getElementById('candleFileInput')?.addEventListener('change', handleCsvUpload);
@@ -206,23 +201,14 @@ function tdBumpUsage(n) {
   } catch { return 0; }
 }
 
-// ── API 키 저장/복원 (localStorage) ─────────────────────────
+// ── API 키 저장/복원 (localStorage, 기본 키 fallback) ────────
 function tdSaveApiKey(key) {
   try { if (key) localStorage.setItem('td_api_key', key); } catch {}
 }
 function tdLoadApiKey() {
-  try { return localStorage.getItem('td_api_key') || ''; } catch { return ''; }
+  try { return localStorage.getItem('td_api_key') || TD_DEFAULT_KEY; }
+  catch { return TD_DEFAULT_KEY; }
 }
-// 페이지 로드 시 저장된 키 복원
-function restoreApiKey() {
-  const el = document.getElementById('paramApiKey');
-  if (el && !el.value) {
-    const saved = tdLoadApiKey();
-    if (saved) el.value = saved;
-  }
-}
-window.restoreApiKey = restoreApiKey;
-document.addEventListener('DOMContentLoaded', restoreApiKey);
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -245,12 +231,8 @@ async function fetchCandles() {
 
   let apiKey = '';
   if (src === 'twelvedata') {
-    apiKey = document.getElementById('paramApiKey').value.trim();
-    if (!apiKey) {
-      setDataStatus('Twelve Data API 키를 입력하세요 (twelvedata.com 무료)', 'err');
-      return;
-    }
-    tdSaveApiKey(apiKey);   // 브라우저에 저장 → 다음 방문 시 자동 복원
+    // 사용자 제공 기본 키 자동 사용 (수동 입력 불필요)
+    apiKey = tdLoadApiKey();
   }
 
   // Stooq는 일봉(D1)만 지원 — 단일 호출이면 됨
@@ -687,8 +669,8 @@ function getParams() {
     startDate   : document.getElementById('paramStartDate').value,
     endDate     : document.getElementById('paramEndDate').value,
     brokerTz    : parseInt(document.getElementById('paramBrokerTz').value) || 0,
-    // EA 메타
-    magic       : parseInt(document.getElementById('paramMagic').value) || 234568,
+    // EA 메타 (AUTO LOGIC 3 고정)
+    magic       : 234568,
     // [1] 방향
     allowBuy    : TOGGLES.buy,
     allowSell   : TOGGLES.sell,
@@ -759,6 +741,17 @@ function inSession(kstDate, p) {
 function posPnL(direction, entry, current, lot) {
   const diff = direction === 'buy' ? current - entry : entry - current;
   return diff * CONTRACT.contractSize * lot;
+}
+
+// 마틴게일 n번째 랏 계산 — 실거래 EA(AUTO LOGIC 3) 8주문 바스켓 검증 완료:
+//   lot[n] = round(시작랏 × 배수ⁿ, 0.01단위).  n = 진입 순번(0=초기진입)
+//   실제 8주문 진행 0.01→0.02→0.02→0.03→0.05→0.08→0.11→0.17 과 정확히 일치.
+//   ※ "직전랏 × 배수"가 아니라 "시작랏 × 배수ⁿ"이 핵심. (반올림 누적 오차 없음)
+//   예) 0.01×1.5^2 = 0.0225 → 0.02,  0.01×1.5^7 = 0.1709 → 0.17
+function martinLotAt(startLot, mult, n) {
+  const v = Math.round(startLot * Math.pow(mult, n) * 100) / 100;
+  // MT4 최소 랏 보장
+  return +(v < 0.01 ? 0.01 : v).toFixed(2);
 }
 
 // 바스켓(같은 방향 누적 포지션) 평균단가, 누적랏, PnL
@@ -899,16 +892,23 @@ function simulate(candles, p) {
       const price = pricesInBar[pi];
       if (isNaN(price) || price <= 0) continue;
 
-      // 통합 TP/SL 체크 (이미 진입한 바스켓)
+      // 통합 TP/SL 체크 (바스켓 평단 기준)
       const stB = basketStats(buyPos,  price);
       const stS = basketStats(sellPos, price);
-      const tpDollarBuy  = stB.totalLot * p.tpPoints  * CONTRACT.pointSize * CONTRACT.contractSize;
-      const tpDollarSell = stS.totalLot * p.tpPoints  * CONTRACT.pointSize * CONTRACT.contractSize;
 
-      // 통합 TP
+      // ── 통합 TP 목표 (실거래 EA 역설계 결과) ──────────────────
+      //   바스켓 평단가가 (tpPoints / 주문수) 포인트만큼 유리하게 움직이면 전체 청산.
+      //   실데이터 검증(익절포인트 300 기준):
+      //     1개→300pt, 2개→150pt, 3개→100pt, 4개→75pt, 5개→60pt, 6개→50pt, 8개→37pt
+      //   → 평단 목표pts = tpPoints / 주문수.  목표$ = 평단목표pts × pointSize × contractSize × totalLot
+      const tpPtsBuy  = buyPos.length  ? p.tpPoints / buyPos.length  : p.tpPoints;
+      const tpPtsSell = sellPos.length ? p.tpPoints / sellPos.length : p.tpPoints;
+      const tpTargetBuy  = tpPtsBuy  * CONTRACT.pointSize * CONTRACT.contractSize * stB.totalLot;
+      const tpTargetSell = tpPtsSell * CONTRACT.pointSize * CONTRACT.contractSize * stS.totalLot;
+
       if (p.useBasketTp) {
-        if (buyPos.length  && stB.pnl >= tpDollarBuy)  closeBasket('buy',  price, ts, 'TP');
-        if (sellPos.length && stS.pnl >= tpDollarSell) closeBasket('sell', price, ts, 'TP');
+        if (buyPos.length  && stB.pnl >= tpTargetBuy)  closeBasket('buy',  price, ts, 'TP');
+        if (sellPos.length && stS.pnl >= tpTargetSell) closeBasket('sell', price, ts, 'TP');
       }
       // 통합 SL
       if (p.slUsd > 0) {
@@ -932,17 +932,19 @@ function simulate(candles, p) {
       if (checkLiquidation(ts, unr)) break;
 
       // 추가진입 트리거 체크
+      //   새 주문 랏 = round(바스켓 시작랏 × 배수^주문순번).
+      //   주문순번 n = 현재 보유 포지션 수(초기진입=0이므로 추가진입은 length부터).
       if (buyPos.length && buyTrigger !== null && price <= buyTrigger && buyPos.length < p.maxOrders) {
-        const lastPos = buyPos[buyPos.length - 1];
-        const newLot  = +(lastPos.lot * p.lotMult).toFixed(2);
-        buyPos.push({ entry: price, lot: newLot, ts });
+        const baseLot = buyPos[0].lot;                 // 바스켓 시작랏(조정값 반영)
+        const newLot  = martinLotAt(baseLot, p.lotMult, buyPos.length);
+        buyPos.push({ entry: price, lot: newLot, ts, direction:'buy' });
         trades.push({ ts, direction:'buy', price, lot:newLot, type:'add' });
         buyTrigger = price - p.interval * CONTRACT.pointSize;
       }
       if (sellPos.length && sellTrigger !== null && price >= sellTrigger && sellPos.length < p.maxOrders) {
-        const lastPos = sellPos[sellPos.length - 1];
-        const newLot  = +(lastPos.lot * p.lotMult).toFixed(2);
-        sellPos.push({ entry: price, lot: newLot, ts });
+        const baseLot = sellPos[0].lot;
+        const newLot  = martinLotAt(baseLot, p.lotMult, sellPos.length);
+        sellPos.push({ entry: price, lot: newLot, ts, direction:'sell' });
         trades.push({ ts, direction:'sell', price, lot:newLot, type:'add' });
         sellTrigger = price + p.interval * CONTRACT.pointSize;
       }
@@ -963,12 +965,12 @@ function simulate(candles, p) {
 
     if (canEnter) {
       if (p.allowBuy && buyPos.length === 0) {
-        buyPos.push({ entry: entryPrice, lot: curBuyLot, ts });
+        buyPos.push({ entry: entryPrice, lot: curBuyLot, ts, direction:'buy' });
         trades.push({ ts, direction:'buy', price: entryPrice, lot: curBuyLot, type:'open' });
         buyTrigger = entryPrice - p.interval * CONTRACT.pointSize;
       }
       if (p.allowSell && sellPos.length === 0) {
-        sellPos.push({ entry: entryPrice, lot: curSellLot, ts });
+        sellPos.push({ entry: entryPrice, lot: curSellLot, ts, direction:'sell' });
         trades.push({ ts, direction:'sell', price: entryPrice, lot: curSellLot, type:'open' });
         sellTrigger = entryPrice + p.interval * CONTRACT.pointSize;
       }

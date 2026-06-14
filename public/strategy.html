@@ -586,13 +586,9 @@
             <span class="pr-label">데이터 소스</span>
             <select id="paramSource" class="pr-select" onchange="onSourceChange()">
               <option value="upload" selected>📂 CSV 업로드 (권장 · 가장 빠름)</option>
-              <option value="twelvedata">Twelve Data API (분봉, 느림)</option>
+              <option value="twelvedata">Twelve Data API (분봉)</option>
               <option value="stooq">Stooq API (일봉만)</option>
             </select>
-          </div>
-          <div id="apiKeyRow" class="pr" style="display:none;">
-            <span class="pr-label">API Key<small>twelvedata.com</small></span>
-            <input type="password" id="paramApiKey" class="pr-input" placeholder="키 입력" style="width:130px;" />
           </div>
 
           <!-- CSV 업로드 영역 (기본 표시) -->
@@ -650,15 +646,6 @@
               <option value="3" selected>UTC+3 (Tradeco 기본)</option>
               <option value="-5">UTC-5 (뉴욕)</option>
             </select>
-          </div>
-        </div>
-
-        <!-- ─────────── 메타 정보 ─────────── -->
-        <div class="sb-section">
-          <div class="sb-section-title"><i class="fas fa-hashtag"></i> EA 메타</div>
-          <div class="pr">
-            <span class="pr-label">매직넘버</span>
-            <input type="number" id="paramMagic" class="pr-input" value="234568" />
           </div>
         </div>
 
@@ -1017,7 +1004,7 @@
 </footer>
 
 <script src="js/utils.v11.js"></script>
-<script src="js/strategy.v11.js?v=20260613-tdopt"></script>
+<script src="js/strategy.v11.js?v=20260614-clean"></script>
 <script>
   /* Nav */
   const navMenuBtn = document.getElementById('navMenuBtn');
