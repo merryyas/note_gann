@@ -668,7 +668,6 @@ function getParams() {
     timeframe   : document.getElementById('paramTimeframe').value,
     startDate   : document.getElementById('paramStartDate').value,
     endDate     : document.getElementById('paramEndDate').value,
-    brokerTz    : parseInt(document.getElementById('paramBrokerTz').value) || 0,
     // EA 메타 (AUTO LOGIC 3 고정)
     magic       : 234568,
     // [1] 방향
@@ -707,11 +706,11 @@ function getParams() {
 //  시뮬레이션 엔진
 // ══════════════════════════════════════════════════════════════
 
-// UTC epoch sec + broker TZ → KST Date 객체
-function toKST(utcSec, brokerTz) {
-  // 봉 시각이 브로커TZ 기준으로 표현된 UTC라면, KST(UTC+9)로 보려면 +9-brokerTz
-  // 우리 봉 ts는 항상 UTC epoch이므로 그냥 +9시간 더하면 KST가 됨
-  // brokerTz는 거래내역과의 정합성 위한 보정(시각 라벨링 차원)
+// UTC epoch sec → KST Date 객체
+//   봉 ts는 항상 UTC epoch(서버가 timezone=UTC로 받아 'Z'로 저장).
+//   EA를 KST 기준 특정 시간대에만 운영하므로 세션 판정·표시 모두 KST(UTC+9).
+//   반환 Date의 getUTCHours()/getUTCDay()가 곧 'KST 시/요일'이 된다.
+function toKST(utcSec) {
   return new Date((utcSec + 9 * 3600) * 1000);
 }
 
@@ -875,7 +874,7 @@ function simulate(candles, p) {
   for (let i = 0; i < candles.length; i++) {
     const k = candles[i];
     const ts = k.ts;
-    const kst = toKST(ts, p.brokerTz);
+    const kst = toKST(ts);
     const dKey = dayKey(kst);
 
     // 일별 리셋
@@ -1174,8 +1173,8 @@ function renderSingleResult(r, p) {
   di.innerHTML = `
     <b>차트 데이터</b>: ${r.candleCount.toLocaleString()}봉 (${p.timeframe})
     · <b>기간</b>: ${p.startDate} ~ ${p.endDate}
-    · <b>브로커TZ</b>: UTC${p.brokerTz>=0?'+':''}${p.brokerTz}
-    · <b>EA</b>: AUTO LOGIC 3 (매직 ${p.magic})
+    · <b>시간대</b>: KST(UTC+9)
+    · <b>EA</b>: AUTO LOGIC 3
   `;
 
   // KPI
