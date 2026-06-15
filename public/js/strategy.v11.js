@@ -149,6 +149,7 @@ async function checkExistingData() {
     const json = await res.json();
     if (json.ok && json.data && json.data.length) {
       CANDLES = json.data;
+      LOADED_RANGE = { tf, from, to };
       setDataStatus(`✅ 캐시 ${json.count.toLocaleString()}봉 로드 완료`, 'ok');
     } else {
       setDataStatus('데이터 없음 — [차트 데이터 받기] 클릭', '');
@@ -163,6 +164,39 @@ function setDataStatus(msg, cls) {
   if (!el) return;
   el.className = 'data-status ' + (cls || '');
   el.innerHTML = msg;
+}
+
+// 현재 입력된 날짜 범위가 마지막으로 로드한 범위와 다르면 D1에서 다시 불러온다.
+//   백테스트/비교/최적화 실행 직전에 호출 → "기간을 바꿔도 결과가 그대로"인 버그 방지.
+let LOADED_RANGE = { tf: null, from: null, to: null };  // 마지막 로드 범위 추적
+async function ensureCandlesForRange() {
+  const tf = document.getElementById('paramTimeframe').value;
+  const sd = document.getElementById('paramStartDate').value;
+  const ed = document.getElementById('paramEndDate').value;
+  if (!sd || !ed) return;
+  const from = Math.floor(new Date(sd + 'T00:00:00Z').getTime() / 1000);
+  const to   = Math.floor(new Date(ed + 'T23:59:59Z').getTime() / 1000);
+
+  // CSV 업로드 소스는 사용자가 직접 올린 데이터를 그대로 사용 (자동 재로드 안 함)
+  const src = document.getElementById('paramSource')?.value;
+  if (src === 'upload') return;
+
+  // 이미 같은 tf·범위를 로드했다면 재요청 생략
+  if (LOADED_RANGE.tf === tf && LOADED_RANGE.from === from && LOADED_RANGE.to === to && CANDLES.length) return;
+
+  setDataStatus('⏳ 선택 기간 데이터 불러오는 중...', '');
+  const res = await fetch(`/api/candles?symbol=XAUUSD&tf=${tf}&from=${from}&to=${to}`);
+  const json = await res.json();
+  if (json.ok && json.data) {
+    CANDLES = json.data;
+    LOADED_RANGE = { tf, from, to };
+    const n = CANDLES.length;
+    let note = '';
+    if (n >= 200000) note = ' ⚠️ 20만봉 상한 도달 — 기간을 줄이세요';
+    setDataStatus(`✅ ${n.toLocaleString()}봉 로드 (${sd}~${ed})${note}`, n >= 200000 ? '' : 'ok');
+  } else {
+    setDataStatus('선택 기간 데이터 없음', 'err');
+  }
 }
 
 // 중단 컨트롤
@@ -1164,6 +1198,10 @@ async function runBacktest() {
   setStatus('run', '백테스트 실행 중...');
 
   try {
+    // 선택한 기간 데이터 자동 재로드 (기간 변경 시 결과 갱신)
+    await ensureCandlesForRange();
+    if (!CANDLES.length) throw new Error('선택 기간에 데이터 없음');
+
     const p = getParams();
     if (!p.allowBuy && !p.allowSell) throw new Error('매수/매도 모두 비활성화됨');
 
@@ -1205,6 +1243,9 @@ async function runCaseCompare() {
   showProgress(0);
 
   try {
+    await ensureCandlesForRange();
+    if (!CANDLES.length) throw new Error('선택 기간에 데이터 없음');
+
     const base = getParams();
     const from = Math.floor(new Date(base.startDate + 'T00:00:00Z').getTime() / 1000);
     const to   = Math.floor(new Date(base.endDate   + 'T23:59:59Z').getTime() / 1000);
@@ -1750,6 +1791,9 @@ async function runOptimize() {
   switchTab('optimize');
 
   try {
+    await ensureCandlesForRange();
+    if (!CANDLES.length) throw new Error('선택 기간에 데이터 없음');
+
     const base = getParams();
     const from = Math.floor(new Date(base.startDate + 'T00:00:00Z').getTime() / 1000);
     const to   = Math.floor(new Date(base.endDate   + 'T23:59:59Z').getTime() / 1000);
