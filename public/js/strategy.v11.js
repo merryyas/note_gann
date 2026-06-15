@@ -192,8 +192,8 @@ async function ensureCandlesForRange() {
     LOADED_RANGE = { tf, from, to };
     const n = CANDLES.length;
     let note = '';
-    if (n >= 200000) note = ' ⚠️ 20만봉 상한 도달 — 기간을 줄이세요';
-    setDataStatus(`✅ ${n.toLocaleString()}봉 로드 (${sd}~${ed})${note}`, n >= 200000 ? '' : 'ok');
+    if (n >= 800000) note = ' ⚠️ 80만봉 상한 도달 — 기간을 줄이세요';
+    setDataStatus(`✅ ${n.toLocaleString()}봉 로드 (${sd}~${ed})${note}`, n >= 800000 ? '' : 'ok');
   } else {
     setDataStatus('선택 기간 데이터 없음', 'err');
   }

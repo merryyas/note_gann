@@ -633,7 +633,7 @@ app.get('/api/candles', async (c) => {
       FROM candles
       WHERE symbol=? AND timeframe=? AND ts_utc>=? AND ts_utc<=?
       ORDER BY ts_utc ASC
-      LIMIT 200000
+      LIMIT 800000
     `).bind(symbol, timeframe, from, to).all<Candle>()
 
     const meta = await c.env.DB.prepare(`
