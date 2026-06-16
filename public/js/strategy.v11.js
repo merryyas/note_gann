@@ -997,14 +997,20 @@ function simulate(candles, p) {
       const stS = basketStats(sellPos, price);
 
       // 통합 TP: 평단가가 (tpPoints / 주문수) pt 유리하게 이동하면 일괄청산.
+      //   ★ 실제 EA 검증결과(385거래·219바스켓): 바스켓 전체가 "동일한 TP 가격"에
+      //     동시 청산됨. TP가격 = vwap ± (tpPoints/n)×pointSize.
+      //   ★ 버그수정: 기존엔 평가손익(pnl≥tgt)을 현재 봉가격으로 비교 → 봉이 TP를
+      //     넘어서면 그 넘어선 가격으로 청산되어 이익이 과대계상(overshoot)되고
+      //     승률이 비현실적으로 100%에 가까워졌다. 이제 봉이 TP가격을 통과하면
+      //     "정확히 TP 가격"에서 체결한다.
       if (p.useBasketTp) {
         if (buyPos.length) {
-          const tgt = (p.tpPoints / buyPos.length) * CONTRACT.pointSize * CONTRACT.contractSize * stB.totalLot;
-          if (stB.pnl >= tgt) closeBasket('buy', price, ts, 'TP');
+          const tpPx = stB.avg + (p.tpPoints / buyPos.length) * CONTRACT.pointSize;
+          if (price >= tpPx) closeBasket('buy', tpPx, ts, 'TP');
         }
         if (sellPos.length) {
-          const tgt = (p.tpPoints / sellPos.length) * CONTRACT.pointSize * CONTRACT.contractSize * stS.totalLot;
-          if (stS.pnl >= tgt) closeBasket('sell', price, ts, 'TP');
+          const tpPx = stS.avg - (p.tpPoints / sellPos.length) * CONTRACT.pointSize;
+          if (price <= tpPx) closeBasket('sell', tpPx, ts, 'TP');
         }
       }
       if (liquidated) return true;
