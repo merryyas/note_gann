@@ -31,3 +31,8 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Gold 분석 원본 차트데이터 (용량 큼 — git 제외, download.sh로 재생성)
+analysis/golddata/sec1/
+analysis/golddata/ticks/
+analysis/golddata/*.log
